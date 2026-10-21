@@ -27,4 +27,4 @@ build-backend = "setuptools.build_meta"
 packages = ["wegpunkt"]
 
 [tool.setuptools.package-data]
-wegpunkt = ["templates/*.html", "static/*", "static/leaflet/*", "static/leaflet/images/*"]
+wegpunkt = ["templates/*.html", "static/*", "static/leaflet/*", "static/leaflet/images/*", "static/fonts/*"]

@@ -3,8 +3,14 @@
 Ein kleiner, selbst gehosteter Aktivitäten-Tracker im Stil von Strava, der mit dem
 Fediverse spricht. Eine Instanz gehört genau einer Person.
 
-- GPX-Dateien hochladen: Distanz, Zeit, Tempo bzw. Geschwindigkeit und Höhenmeter werden berechnet
-- Aktivitätsseite mit Karte (Leaflet + OpenStreetMap) und Höhenprofil
+- Vier Sportarten: **Gravel**, **Enduro MTB**, **Joggen** (per GPX-Datei) und **Calisthenics**
+  (von Hand eingetragen: Übungen mit Sätzen, Wiederholungen oder Haltezeit, Zusatzgewicht)
+- GPX-Dateien hochladen: Distanz, Zeit, Tempo bzw. Geschwindigkeit, Anstieg und Abfahrt werden berechnet
+- Aktivitätsseite mit Karte (normale Karte oder Topo), interaktivem Höhenprofil, das mit der
+  Karte verbunden ist, und Satz-Diagrammen bei Workouts
+- Startseite mit Wochenübersicht und Trainingszeit der letzten 12 Wochen
+- **Keine Registrierung**: Es gibt nur ein Passwort für dich. Nach 5 Fehlversuchen ist die
+  Anmeldung 15 Minuten gesperrt.
 - **Privatzone**: Rund um Start und Ziel wird die Strecke öffentlich nicht gezeigt (Standard 200 m)
 - **Fediverse**: Man kann dir von Mastodon, GoToSocial usw. folgen (`@du@deine-domain`).
   Jede neue Aktivität erscheint dort als Beitrag mit Routenbild, Werten und Hashtag.
@@ -67,7 +73,9 @@ können andere Server deine Beiträge nicht mehr zuordnen.
 | `wegpunkt/app.py` | Webseiten und ActivityPub-Endpunkte (WebFinger, Actor, Inbox, Outbox, NodeInfo) |
 | `wegpunkt/federation.py` | ActivityPub-Objekte bauen, fremde Accounts laden, zustellen, Inbox verarbeiten |
 | `wegpunkt/httpsig.py` | HTTP-Signaturen erstellen und prüfen |
-| `wegpunkt/tracks.py` | GPX auswerten, Privatzone, Höhenprofil, Routenbild |
+| `wegpunkt/tracks.py` | Sportarten, GPX auswerten, Privatzone, Routenbild |
+| `wegpunkt/workouts.py` | Calisthenics-Workouts: Sätze einlesen, Summen |
+| `wegpunkt/stats.py` | Wochenübersicht und Diagramm |
 | `wegpunkt/db.py` | SQLite-Datenbank |
 | `wegpunkt/config.py` | Einstellungen aus Umgebungsvariablen |
 
@@ -82,7 +90,6 @@ können andere Server deine Beiträge nicht mehr zuordnen.
   Fitness-Instanzen Aktivitäten maschinenlesbar übernehmen können
 - Bestzeiten, Wochen- und Jahresstatistiken
 - Zustellungen bei Fehlern später erneut versuchen (Warteschlange)
-- Schutz gegen zu viele Login-Versuche
 
-Leaflet liegt in `wegpunkt/static/leaflet/` (BSD-2-Clause, siehe dortige `LICENSE`).
-# wegpunkt
+Leaflet liegt in `wegpunkt/static/leaflet/` (BSD-2-Clause), die Schriften Inter und Barlow
+Condensed in `wegpunkt/static/fonts/` (SIL Open Font License). Die Lizenzen liegen jeweils daneben.

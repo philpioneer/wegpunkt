@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS activities (
     duration_s       REAL,
     moving_s         REAL,
     elevation_gain_m REAL,
+    elevation_loss_m REAL,
+    kind             TEXT NOT NULL DEFAULT 'gps',
+    workout_json     TEXT,
     track_json       TEXT NOT NULL,
     has_image        INTEGER NOT NULL DEFAULT 0,
     created_at       TEXT NOT NULL
@@ -63,6 +66,25 @@ class Database:
         self.path = path
         with self._conn() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Ältere Datenbanken auf den aktuellen Stand bringen."""
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(activities)")}
+        for name, definition in (
+            ("elevation_loss_m", "REAL"),
+            ("kind", "TEXT NOT NULL DEFAULT 'gps'"),
+            ("workout_json", "TEXT"),
+        ):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE activities ADD COLUMN {name} {definition}")
+        # Frühere Sportarten auf die aktuellen abbilden
+        conn.execute("UPDATE activities SET sport = 'gravel' WHERE sport = 'ride'")
+        conn.execute(
+            "UPDATE activities SET sport = 'run' WHERE kind = 'gps'"
+            " AND sport NOT IN ('gravel', 'enduro', 'run')"
+        )
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -81,12 +103,19 @@ class Database:
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO activities (id, title, description, sport, started_at,
-                   distance_m, duration_s, moving_s, elevation_gain_m, track_json,
-                   has_image, created_at)
+                   distance_m, duration_s, moving_s, elevation_gain_m, elevation_loss_m,
+                   kind, workout_json, track_json, has_image, created_at)
                    VALUES (:id, :title, :description, :sport, :started_at, :distance_m,
-                   :duration_s, :moving_s, :elevation_gain_m, :track_json, :has_image,
-                   :created_at)""",
-                {**a, "track_json": json.dumps(a["track"]), "has_image": int(a["has_image"])},
+                   :duration_s, :moving_s, :elevation_gain_m, :elevation_loss_m, :kind,
+                   :workout_json, :track_json, :has_image, :created_at)""",
+                {
+                    "elevation_loss_m": None,
+                    "kind": "gps",
+                    **a,
+                    "workout_json": json.dumps(a["workout"]) if a.get("workout") else None,
+                    "track_json": json.dumps(a.get("track") or []),
+                    "has_image": int(a.get("has_image", False)),
+                },
             )
 
     @staticmethod
@@ -95,6 +124,8 @@ class Database:
             return None
         a = dict(row)
         a["track"] = json.loads(a.pop("track_json"))
+        workout = a.pop("workout_json")
+        a["workout"] = json.loads(workout) if workout else None
         a["has_image"] = bool(a["has_image"])
         return a
 
@@ -116,6 +147,21 @@ class Database:
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
         return [self._activity(r) for r in rows]  # type: ignore[misc]
+
+    def all_activities_light(self) -> list[dict[str, Any]]:
+        """Alle Aktivitäten ohne Track, für Statistiken."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, sport, kind, started_at, created_at, distance_m, duration_s,"
+                " moving_s, elevation_gain_m, workout_json FROM activities"
+            ).fetchall()
+        out = []
+        for r in rows:
+            a = dict(r)
+            w = a.pop("workout_json")
+            a["workout"] = json.loads(w) if w else None
+            out.append(a)
+        return out
 
     def activity_totals(self) -> dict[str, float]:
         with self._conn() as conn:

@@ -18,7 +18,9 @@ from . import __version__
 from .config import Settings
 from .db import Database
 from .httpsig import public_key_pem, sign_request
-from .tracks import SPORTS, format_distance, format_duration, format_speed
+from .tracks import format_distance, format_duration, format_hours, format_meters, format_speed, sport
+from .workouts import format_exercise
+from .workouts import summary as workout_summary
 
 log = logging.getLogger("wegpunkt.federation")
 
@@ -111,22 +113,37 @@ class Federation:
 
     def note(self, a: dict[str, Any]) -> dict[str, Any]:
         url = self.activity_url(a["id"])
-        sport_name, emoji = SPORTS.get(a["sport"], SPORTS["other"])
+        sp = sport(a["sport"])
         seconds = a["moving_s"] or a["duration_s"]
-        stats = [f"{emoji} {sport_name}", format_distance(a["distance_m"])]
-        if seconds:
-            stats += [format_duration(seconds), format_speed(a["sport"], a["distance_m"], seconds)]
-        if a["elevation_gain_m"]:
-            stats.append(f"↑ {a['elevation_gain_m']:.0f} m")
+        stats = [f"{sp.emoji} {sp.name}"]
+        lines: list[str] = []
+        if a.get("kind") == "workout":
+            totals = workout_summary(a.get("workout"))
+            if seconds:
+                stats.append(format_hours(seconds))
+            stats.append(f"{totals['sets']} Sätze")
+            if totals["reps"]:
+                stats.append(f"{totals['reps']} Wdh.")
+            lines = [format_exercise(e) for e in a.get("workout") or []]
+        else:
+            stats.append(format_distance(a["distance_m"]))
+            if seconds:
+                stats += [format_duration(seconds), format_speed(a["sport"], a["distance_m"], seconds)]
+            if a["elevation_gain_m"]:
+                stats.append(f"↑ {format_meters(a['elevation_gain_m'])} m")
+            if a["sport"] == "enduro" and a.get("elevation_loss_m"):
+                stats.append(f"↓ {format_meters(a['elevation_loss_m'])} m")
         tag_url = f"{self.s.base_url}/?sport={a['sport']}"
 
         content = f"<p><strong>{html.escape(a['title'])}</strong></p>"
         content += f"<p>{html.escape(' · '.join(stats))}</p>"
+        if lines:
+            content += "<p>" + "<br>".join(html.escape(line) for line in lines) + "</p>"
         if a["description"]:
             content += f"<p>{html.escape(a['description']).replace(chr(10), '<br>')}</p>"
         content += (
             f'<p><a href="{url}">{url}</a> '
-            f'<a href="{tag_url}" class="mention hashtag" rel="tag">#<span>{sport_name}</span></a></p>'
+            f'<a href="{tag_url}" class="mention hashtag" rel="tag">#<span>{sp.hashtag}</span></a></p>'
         )
 
         note: dict[str, Any] = {
@@ -139,7 +156,7 @@ class Federation:
             "to": [AS_PUBLIC],
             "cc": [f"{self.s.actor_url}/followers"],
             "content": content,
-            "tag": [{"type": "Hashtag", "href": tag_url, "name": f"#{sport_name}"}],
+            "tag": [{"type": "Hashtag", "href": tag_url, "name": f"#{sp.hashtag}"}],
         }
         if a["has_image"]:
             note["attachment"] = [{

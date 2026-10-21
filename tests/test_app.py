@@ -57,6 +57,12 @@ def post_inbox(client, key, activity, path="/users/philipp/inbox"):
     return client.post(path, content=body, headers=headers)
 
 
+def reaction_count(page, label):
+    import re
+    m = re.search(rf'title="{label}">.*?</svg>\s*(\d+)', page, re.S)
+    return int(m.group(1))
+
+
 def login_and_upload(client):
     client.post("/login", data={"password": "geheim"})
     r = client.post("/upload", files={"file": ("run.gpx", GPX)}, data={"sport": "auto"},
@@ -147,12 +153,12 @@ def test_follow_upload_and_reactions(env, remote_key):
     assert post_inbox(client, remote_key, reply).status_code == 202
 
     page = client.get(f"/activities/{activity_id}").text
-    assert "♥ 1 Likes" in page and "💬 1 Antworten" in page
+    assert reaction_count(page, "Likes") == 1 and reaction_count(page, "Antworten") == 1
     assert "Stark!" in page and "<script>alert" not in page
 
     undo = {"id": f"{REMOTE}#undo/1", "type": "Undo", "actor": REMOTE, "object": like}
     post_inbox(client, remote_key, undo)
-    assert "♥ 0 Likes" in client.get(f"/activities/{activity_id}").text
+    assert reaction_count(client.get(f"/activities/{activity_id}").text, "Likes") == 0
 
     r = client.post(f"/activities/{activity_id}/delete", follow_redirects=False)
     assert r.status_code == 303
@@ -170,3 +176,74 @@ def test_inbox_rejects_bad_signatures(env, remote_key):
     assert post_inbox(client, remote_key, spoofed).status_code == 401
 
     assert client.post("/inbox", json=follow).status_code == 401
+
+
+# Workouts, Anmeldung, Umstellung -------------------------------------------
+
+from wegpunkt.workouts import WorkoutError, build_workout, parse_sets, summary
+
+
+def test_parse_sets():
+    assert parse_sets("8 8 7 6") == [8, 8, 7, 6]
+    assert parse_sets("4x8") == [8, 8, 8, 8]
+    assert parse_sets("10, 9;8") == [10, 9, 8]
+    with pytest.raises(WorkoutError):
+        parse_sets("acht")
+
+
+def test_build_workout_skips_empty_rows():
+    w = build_workout(["Klimmzüge", "", "L-Sit"], ["4x8", "", "20 20"], ["reps", "reps", "sec"], ["10", "", ""])
+    assert [e["name"] for e in w] == ["Klimmzüge", "L-Sit"]
+    assert w[0]["weight_kg"] == 10
+    assert summary(w) == {"exercises": 2, "sets": 6, "reps": 32, "hold_s": 40}
+    with pytest.raises(WorkoutError):
+        build_workout(["", ""], ["", ""], [], [])
+
+
+def test_workout_is_published(env, remote_key):
+    client, delivered = env
+    follow = {"id": f"{REMOTE}#follow/1", "type": "Follow", "actor": REMOTE,
+              "object": "http://testserver/users/philipp"}
+    post_inbox(client, remote_key, follow)
+    client.post("/login", data={"password": "geheim"})
+    r = client.post("/workout", data={
+        "title": "Pull Day", "started": "2026-10-20T18:30", "duration_min": "45",
+        "exercise_name": ["Klimmzüge", "Dips"], "exercise_sets": ["8 8 7 6", "3x12"],
+        "exercise_unit": ["reps", "reps"], "exercise_weight": ["", "+5"],
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    note = delivered[-1][1]["object"]
+    assert "Klimmzüge: 8 · 8 · 7 · 6 Wdh." in note["content"]
+    assert "Dips (+5 kg): 12 · 12 · 12 Wdh." in note["content"]
+    assert "#Calisthenics" == note["tag"][0]["name"]
+    page = client.get(r.headers["location"]).text
+    assert "Pull Day" in page and "65" in page  # 29 + 36 Wiederholungen
+
+    bad = client.post("/workout", data={"exercise_name": ["Klimmzüge"], "exercise_sets": ["viele"]})
+    assert "verstehe ich nicht" in bad.text and 'value="Klimmzüge"' in bad.text
+
+
+def test_login_is_throttled(env):
+    client, _ = env
+    for _ in range(5):
+        assert "Falsches Passwort" in client.post("/login", data={"password": "nein"}).text
+    blocked = client.post("/login", data={"password": "geheim"})
+    assert "Zu viele Fehlversuche" in blocked.text
+
+
+def test_old_sports_are_migrated(tmp_path):
+    import sqlite3
+    from wegpunkt.db import Database
+    db_path = tmp_path / "old.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""CREATE TABLE activities (id TEXT PRIMARY KEY, title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '', sport TEXT NOT NULL, started_at TEXT,
+        distance_m REAL NOT NULL, duration_s REAL, moving_s REAL, elevation_gain_m REAL,
+        track_json TEXT NOT NULL, has_image INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+        INSERT INTO activities VALUES ('a','A','', 'ride', NULL, 1000, 60, 60, 0, '[]', 0, '2026-01-01T00:00:00Z');
+        INSERT INTO activities VALUES ('b','B','', 'hike', NULL, 1000, 60, 60, 0, '[]', 0, '2026-01-01T00:00:00Z');""")
+    conn.commit(); conn.close()
+    db = Database(db_path)
+    assert db.get_activity("a")["sport"] == "gravel"
+    assert db.get_activity("b")["sport"] == "run"
+    assert db.get_activity("a")["kind"] == "gps"

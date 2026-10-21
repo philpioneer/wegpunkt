@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>Morgenrunde</name><type>running</type><trkseg>
+    <trkpt lat="52.500000" lon="13.400000"><ele>40.0</ele><time>2026-10-18T07:00:00Z</time></trkpt>
+    <trkpt lat="52.500900" lon="13.400000"><ele>41.5</ele><time>2026-10-18T07:00:30Z</time></trkpt>
+    <trkpt lat="52.501800" lon="13.400000"><ele>43.0</ele><time>2026-10-18T07:01:00Z</time></trkpt>
+    <trkpt lat="52.502700" lon="13.400000"><ele>44.5</ele><time>2026-10-18T07:01:30Z</time></trkpt>
+    <trkpt lat="52.503600" lon="13.400000"><ele>46.0</ele><time>2026-10-18T07:02:00Z</time></trkpt>
+    <trkpt lat="52.504500" lon="13.400000"><ele>47.5</ele><time>2026-10-18T07:02:30Z</time></trkpt>
+    <trkpt lat="52.505400" lon="13.400000"><ele>49.0</ele><time>2026-10-18T07:03:00Z</time></trkpt>
+    <trkpt lat="52.506300" lon="13.400000"><ele>50.5</ele><time>2026-10-18T07:03:30Z</time></trkpt>
+    <trkpt lat="52.507200" lon="13.400000"><ele>52.0</ele><time>2026-10-18T07:04:00Z</time></trkpt>
+    <trkpt lat="52.508100" lon="13.400000"><ele>53.5</ele><time>2026-10-18T07:04:30Z</time></trkpt>
+    <trkpt lat="52.509000" lon="13.400000"><ele>55.0</ele><time>2026-10-18T07:05:00Z</time></trkpt>
+    <trkpt lat="52.509900" lon="13.400000"><ele>56.5</ele><time>2026-10-18T07:05:30Z</time></trkpt>
+    <trkpt lat="52.510800" lon="13.400000"><ele>58.0</ele><time>2026-10-18T07:06:00Z</time></trkpt>
+    <trkpt lat="52.511700" lon="13.400000"><ele>59.5</ele><time>2026-10-18T07:06:30Z</time></trkpt>
+    <trkpt lat="52.512600" lon="13.400000"><ele>61.0</ele><time>2026-10-18T07:07:00Z</time></trkpt>
+    <trkpt lat="52.513500" lon="13.400000"><ele>62.5</ele><time>2026-10-18T07:07:30Z</time></trkpt>
+    <trkpt lat="52.514400" lon="13.400000"><ele>64.0</ele><time>2026-10-18T07:08:00Z</time></trkpt>
+    <trkpt lat="52.515300" lon="13.400000"><ele>65.5</ele><time>2026-10-18T07:08:30Z</time></trkpt>
+    <trkpt lat="52.516200" lon="13.400000"><ele>67.0</ele><time>2026-10-18T07:09:00Z</time></trkpt>
+    <trkpt lat="52.517100" lon="13.400000"><ele>68.5</ele><time>2026-10-18T07:09:30Z</time></trkpt>
+    <trkpt lat="52.518000" lon="13.400000"><ele>70.0</ele><time>2026-10-18T07:10:00Z</time></trkpt>
+    <trkpt lat="52.518900" lon="13.400000"><ele>71.5</ele><time>2026-10-18T07:10:30Z</time></trkpt>
+    <trkpt lat="52.519800" lon="13.400000"><ele>73.0</ele><time>2026-10-18T07:11:00Z</time></trkpt>
+    <trkpt lat="52.520700" lon="13.400000"><ele>74.5</ele><time>2026-10-18T07:11:30Z</time></trkpt>
+    <trkpt lat="52.521600" lon="13.400000"><ele>76.0</ele><time>2026-10-18T07:12:00Z</time></trkpt>
+    <trkpt lat="52.522500" lon="13.400000"><ele>77.5</ele><time>2026-10-18T07:12:30Z</time></trkpt>
+    <trkpt lat="52.523400" lon="13.400000"><ele>79.0</ele><time>2026-10-18T07:13:00Z</time></trkpt>
+    <trkpt lat="52.524300" lon="13.400000"><ele>80.5</ele><time>2026-10-18T07:13:30Z</time></trkpt>
+    <trkpt lat="52.525200" lon="13.400000"><ele>82.0</ele><time>2026-10-18T07:14:00Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.400000"><ele>83.5</ele><time>2026-10-18T07:14:30Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.401500"><ele>85.0</ele><time>2026-10-18T07:15:00Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.403000"><ele>86.5</ele><time>2026-10-18T07:15:30Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.404500"><ele>88.0</ele><time>2026-10-18T07:16:00Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.406000"><ele>89.5</ele><time>2026-10-18T07:16:30Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.407500"><ele>91.0</ele><time>2026-10-18T07:17:00Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.409000"><ele>92.5</ele><time>2026-10-18T07:17:30Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.410500"><ele>94.0</ele><time>2026-10-18T07:18:00Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.412000"><ele>95.5</ele><time>2026-10-18T07:18:30Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.413500"><ele>97.0</ele><time>2026-10-18T07:19:00Z</time></trkpt>
+    <trkpt lat="52.526100" lon="13.415000"><ele>98.5</ele><time>2026-10-18T07:19:30Z</time></trkpt>
+  </trkseg></trk>
+</gpx>

@@ -5,8 +5,10 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import time
 import uuid
-from datetime import datetime
+from collections import defaultdict, deque
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -17,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, tracks
+from . import __version__, stats, tracks, workouts
 from .config import Settings, load_settings
 from .db import Database, now_iso
 from .federation import (
@@ -32,6 +34,30 @@ from .httpsig import SignatureError, load_or_create_key, parse_signature_header,
 log = logging.getLogger("wegpunkt")
 HERE = Path(__file__).parent
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
+LOGIN_MAX_FAILURES = 5
+LOGIN_WINDOW_S = 15 * 60
+
+
+class LoginThrottle:
+    """Bremst das Durchprobieren von Passwörtern: max. 5 Fehlversuche in 15 Minuten."""
+
+    def __init__(self) -> None:
+        self.failures: dict[str, deque[float]] = defaultdict(deque)
+
+    def _recent(self, ip: str) -> deque[float]:
+        q = self.failures[ip]
+        while q and time.monotonic() - q[0] > LOGIN_WINDOW_S:
+            q.popleft()
+        return q
+
+    def blocked(self, ip: str) -> bool:
+        return len(self._recent(ip)) >= LOGIN_MAX_FAILURES
+
+    def fail(self, ip: str) -> None:
+        self._recent(ip).append(time.monotonic())
+
+    def reset(self, ip: str) -> None:
+        self.failures.pop(ip, None)
 
 
 class APResponse(JSONResponse):
@@ -55,18 +81,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     templates = Jinja2Templates(directory=HERE / "templates")
 
-    def local_time(value: str | None) -> str:
+    def to_local(value: str | None) -> datetime | None:
         if not value:
+            return None
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(tz)
+
+    weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+    months = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sep.", "Okt.", "Nov.", "Dez."]
+
+    def local_time(value: str | None) -> str:
+        dt = to_local(value)
+        return dt.strftime("%d.%m.%Y, %H:%M Uhr") if dt else ""
+
+    def nice_date(value: str | None) -> str:
+        """'Sa, 18. Okt. 2026 · 09:00'"""
+        dt = to_local(value)
+        if not dt:
             return ""
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(tz)
-        return dt.strftime("%d.%m.%Y, %H:%M Uhr")
+        return f"{weekdays[dt.weekday()]}, {dt.day}. {months[dt.month - 1]} {dt.year} · {dt:%H:%M}"
+
+    def initials(name: str) -> str:
+        parts = [p for p in name.replace("@", " ").split() if p]
+        return "".join(p[0] for p in parts[:2]).upper() or "?"
 
     templates.env.filters.update(
-        distance=tracks.format_distance, duration=tracks.format_duration, local_time=local_time
+        distance=tracks.format_distance, duration=tracks.format_duration,
+        hours=tracks.format_hours, meters=tracks.format_meters,
+        local_time=local_time, nice_date=nice_date, initials=initials,
+        weight=workouts.format_weight,
     )
     templates.env.globals.update(
-        settings=s, sports=tracks.SPORTS, speed=tracks.format_speed
+        settings=s, sports=tracks.SPORTS, gps_sports=tracks.GPS_SPORTS, sport=tracks.sport,
+        speed=tracks.format_speed, speed_parts=tracks.speed_parts,
+        distance_parts=tracks.distance_parts, route_path=tracks.route_path,
+        workout_summary=workouts.summary, units=workouts.UNITS,
+        suggestions=workouts.SUGGESTIONS,
     )
+    throttle = LoginThrottle()
 
     def is_owner(request: Request) -> bool:
         return request.session.get("owner") is True
@@ -88,13 +139,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def index(request: Request, sport: str | None = None):
         if sport not in tracks.SPORTS:
             sport = None
+        light = db.all_activities_light()
         return render(
             request,
             "index.html",
             activities=db.list_activities(limit=100, sport=sport),
             totals=db.activity_totals(),
+            week=stats.this_week(light, tz),
+            chart=stats.weekly_chart(light, tz),
             followers=db.count_followers(),
-            sport=sport,
+            current_sport=sport,
         )
 
     @app.get("/login", response_class=HTMLResponse)
@@ -103,8 +157,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/login")
     def login(request: Request, password: str = Form(...)):
+        ip = request.client.host if request.client else "?"
+        if throttle.blocked(ip):
+            return render(request, "login.html",
+                          error="Zu viele Fehlversuche. Bitte warte 15 Minuten.")
         if not hmac.compare_digest(password.encode(), s.password.encode()):
+            throttle.fail(ip)
             return render(request, "login.html", error="Falsches Passwort.")
+        throttle.reset(ip)
         request.session["owner"] = True
         return RedirectResponse("/", status_code=303)
 
@@ -113,10 +173,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request.session.clear()
         return RedirectResponse("/", status_code=303)
 
+    def upload_page(request: Request, mode: str, **ctx: Any) -> HTMLResponse:
+        now_local = datetime.now(tz).strftime("%Y-%m-%dT%H:%M")
+        defaults = {"error": None, "values": {}, "rows": [{}, {}, {}]}
+        return render(request, "upload.html", mode=mode, now_local=now_local, **{**defaults, **ctx})
+
     @app.get("/upload", response_class=HTMLResponse)
-    def upload_form(request: Request):
+    def upload_form(request: Request, type: str = "gps"):
         require_owner(request)
-        return render(request, "upload.html", error=None)
+        return upload_page(request, "workout" if type == "workout" else "gps")
+
+    def publish(activity: dict[str, Any], background: BackgroundTasks) -> RedirectResponse:
+        db.add_activity(activity)
+        background.add_task(fed.broadcast, fed.create(activity))
+        return RedirectResponse(f"/activities/{activity['id']}", status_code=303)
 
     @app.post("/upload")
     async def upload(
@@ -128,26 +198,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         sport: str = Form("auto"),
     ):
         require_owner(request)
+        values = {"title": title, "description": description, "sport": sport}
         data = await file.read(MAX_UPLOAD_BYTES + 1)
         if len(data) > MAX_UPLOAD_BYTES:
-            return render(request, "upload.html", error="Die Datei ist zu groß (max. 30 MB).")
+            return upload_page(request, "gps", values=values,
+                               error="Die Datei ist zu groß (max. 30 MB).")
         try:
             track = tracks.parse_gpx(data)
         except tracks.TrackError as exc:
-            return render(request, "upload.html", error=str(exc))
+            return upload_page(request, "gps", values=values, error=str(exc))
 
-        if sport not in tracks.SPORTS:
+        if sport not in tracks.GPS_SPORTS:
             sport = track.sport_hint or "run"
+        sp = tracks.sport(sport)
         activity_id = uuid.uuid4().hex[:16]
         visible = tracks.downsample(tracks.apply_privacy_zone(track.points, s.privacy_radius_m), 2000)
-        has_image = tracks.render_route_png(visible, s.data_dir / "media" / f"{activity_id}.png")
+        has_image = tracks.render_route_png(
+            visible, s.data_dir / "media" / f"{activity_id}.png", color=sp.color
+        )
         (s.data_dir / "gpx" / f"{activity_id}.gpx").write_bytes(data)
 
-        default_title = f"{tracks.SPORTS[sport][0]} am " + (
+        default_title = f"{sp.name} am " + (
             track.started_at.astimezone(tz).strftime("%d.%m.%Y") if track.started_at else "Tag X"
         )
-        activity = {
+        return publish({
             "id": activity_id,
+            "kind": "gps",
             "title": (title.strip() or track.name or default_title)[:200],
             "description": description.strip()[:5000],
             "sport": sport,
@@ -156,13 +232,69 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "duration_s": track.duration_s,
             "moving_s": track.moving_s,
             "elevation_gain_m": track.elevation_gain_m,
+            "elevation_loss_m": track.elevation_loss_m,
             "track": [list(p) for p in visible],
             "has_image": has_image,
             "created_at": now_iso(),
-        }
-        db.add_activity(activity)
-        background.add_task(fed.broadcast, fed.create(activity))
-        return RedirectResponse(f"/activities/{activity_id}", status_code=303)
+        }, background)
+
+    @app.post("/workout")
+    def add_workout(
+        request: Request,
+        background: BackgroundTasks,
+        title: str = Form(""),
+        description: str = Form(""),
+        started: str = Form(""),
+        duration_min: str = Form(""),
+        exercise_name: list[str] = Form([]),
+        exercise_sets: list[str] = Form([]),
+        exercise_unit: list[str] = Form([]),
+        exercise_weight: list[str] = Form([]),
+    ):
+        require_owner(request)
+        rows = [
+            {"name": n, "sets": exercise_sets[i] if i < len(exercise_sets) else "",
+             "unit": exercise_unit[i] if i < len(exercise_unit) else "reps",
+             "weight": exercise_weight[i] if i < len(exercise_weight) else ""}
+            for i, n in enumerate(exercise_name)
+        ]
+        values = {"title": title, "description": description, "started": started,
+                  "duration_min": duration_min}
+
+        def fail(message: str) -> HTMLResponse:
+            return upload_page(request, "workout", values=values, rows=rows or [{}], error=message)
+
+        try:
+            exercises = workouts.build_workout(exercise_name, exercise_sets, exercise_unit, exercise_weight)
+        except workouts.WorkoutError as exc:
+            return fail(str(exc))
+        try:
+            started_dt = datetime.strptime(started, "%Y-%m-%dT%H:%M").replace(tzinfo=tz) if started else datetime.now(tz)
+        except ValueError:
+            return fail("Datum und Uhrzeit verstehe ich nicht.")
+        try:
+            minutes = float(duration_min.replace(",", ".")) if duration_min.strip() else None
+        except ValueError:
+            return fail("Die Dauer muss eine Zahl in Minuten sein.")
+        if minutes is not None and not 0 < minutes <= 24 * 60:
+            return fail("Die Dauer muss zwischen 1 Minute und 24 Stunden liegen.")
+
+        return publish({
+            "id": uuid.uuid4().hex[:16],
+            "kind": "workout",
+            "title": (title.strip() or "Calisthenics")[:200],
+            "description": description.strip()[:5000],
+            "sport": "calisthenics",
+            "started_at": started_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "distance_m": 0.0,
+            "duration_s": minutes * 60 if minutes else None,
+            "moving_s": None,
+            "elevation_gain_m": None,
+            "workout": exercises,
+            "track": [],
+            "has_image": False,
+            "created_at": now_iso(),
+        }, background)
 
     @app.get("/activities/{activity_id}")
     def activity_page(request: Request, activity_id: str):
@@ -172,12 +304,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if wants_activitypub(request.headers.get("accept")):
             return APResponse(fed.note(a))
         interactions = db.list_interactions(activity_id)
+        profile = tracks.track_profile([tuple(p) for p in a["track"]])
         return render(
             request,
             "activity.html",
             a=a,
-            track_json=json.dumps([[p[0], p[1]] for p in a["track"]]),
-            profile=tracks.elevation_profile([tuple(p) for p in a["track"]]),
+            sp=tracks.sport(a["sport"]),
+            profile_json=json.dumps(profile),
+            has_elevation=sum(1 for p in profile if p[3] is not None) > 1,
+            summary=workouts.summary(a.get("workout")),
             likes=[i for i in interactions if i["kind"] == "like"],
             boosts=[i for i in interactions if i["kind"] == "announce"],
             replies=[i for i in interactions if i["kind"] == "reply"],
