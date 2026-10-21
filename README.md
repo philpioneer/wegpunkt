@@ -85,3 +85,4 @@ können andere Server deine Beiträge nicht mehr zuordnen.
 - Schutz gegen zu viele Login-Versuche
 
 Leaflet liegt in `wegpunkt/static/leaflet/` (BSD-2-Clause, siehe dortige `LICENSE`).
+# wegpunkt
