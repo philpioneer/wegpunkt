@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="profile">
+  <h1>{{ settings.display_name }}</h1>
+  <p class="handle">{{ settings.handle }}</p>
+  {% if settings.summary %}<p>{{ settings.summary }}</p>{% endif %}
+  <dl class="stats">
+    <div><dt>Aktivitäten</dt><dd>{{ totals.count }}</dd></div>
+    <div><dt>Gesamt</dt><dd>{{ totals.distance_m | distance }}</dd></div>
+    <div><dt>Höhenmeter</dt><dd>{{ "%.0f" | format(totals.elevation_gain_m) }} m</dd></div>
+    <div><dt>Follower</dt><dd>{{ followers }}</dd></div>
+  </dl>
+</section>
+
+<nav class="filters">
+  <a href="/" {% if not sport %}class="active"{% endif %}>Alle</a>
+  {% for key, (name, emoji) in sports.items() %}
+    <a href="/?sport={{ key }}" {% if sport == key %}class="active"{% endif %}>{{ emoji }} {{ name }}</a>
+  {% endfor %}
+</nav>
+
+{% for a in activities %}
+  <a class="card" href="/activities/{{ a.id }}">
+    {% if a.has_image %}<img src="/media/{{ a.id }}.png" alt="" loading="lazy">{% endif %}
+    <div>
+      <p class="meta">{{ sports[a.sport][1] }} {{ sports[a.sport][0] }} · {{ (a.started_at or a.created_at) | local_time }}</p>
+      <h2>{{ a.title }}</h2>
+      <p class="numbers">
+        <span>{{ a.distance_m | distance }}</span>
+        <span>{{ (a.moving_s or a.duration_s) | duration }}</span>
+        <span>{{ speed(a.sport, a.distance_m, a.moving_s or a.duration_s) }}</span>
+      </p>
+    </div>
+  </a>
+{% else %}
+  <p class="empty">Noch keine Aktivitäten.{% if is_owner %} <a href="/upload">Lade deine erste GPX-Datei hoch.</a>{% endif %}</p>
+{% endfor %}
+{% endblock %}

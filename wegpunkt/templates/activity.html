@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ a.title }}{% endblock %}
+{% block head %}
+<link rel="alternate" type="application/activity+json" href="{{ settings.base_url }}/activities/{{ a.id }}">
+<meta property="og:title" content="{{ a.title }}">
+{% if a.has_image %}<meta property="og:image" content="{{ settings.base_url }}/media/{{ a.id }}.png">{% endif %}
+<link rel="stylesheet" href="/static/leaflet/leaflet.css">
+<script src="/static/leaflet/leaflet.js"></script>
+{% endblock %}
+{% block content %}
+<p class="meta">{{ sports[a.sport][1] }} {{ sports[a.sport][0] }} · {{ (a.started_at or a.created_at) | local_time }}</p>
+<h1>{{ a.title }}</h1>
+{% if a.description %}<p class="description">{{ a.description }}</p>{% endif %}
+
+<dl class="stats big">
+  <div><dt>Distanz</dt><dd>{{ a.distance_m | distance }}</dd></div>
+  <div><dt>Bewegungszeit</dt><dd>{{ a.moving_s | duration }}</dd></div>
+  <div><dt>{{ "Tempo" if a.sport in ("run", "hike", "walk") else "Ø Geschw." }}</dt><dd>{{ speed(a.sport, a.distance_m, a.moving_s or a.duration_s) }}</dd></div>
+  <div><dt>Höhenmeter</dt><dd>{% if a.elevation_gain_m is not none %}{{ "%.0f" | format(a.elevation_gain_m) }} m{% else %}–{% endif %}</dd></div>
+  <div><dt>Gesamtzeit</dt><dd>{{ a.duration_s | duration }}</dd></div>
+</dl>
+
+{% if a.track %}
+<div id="map"></div>
+<p class="hint">Rund um Start und Ziel ist die Strecke ausgeblendet ({{ "%.0f" | format(settings.privacy_radius_m) }} m).</p>
+<script>
+  const track = {{ track_json | safe }};
+  const map = L.map("map", { scrollWheelZoom: false });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
+  const line = L.polyline(track, { color: "#e85414", weight: 4 }).addTo(map);
+  map.fitBounds(line.getBounds(), { padding: [20, 20] });
+</script>
+{% endif %}
+
+{% if profile %}
+<h2>Höhenprofil</h2>
+<figure class="elevation">
+  <svg viewBox="0 0 {{ profile.width }} {{ profile.height }}" preserveAspectRatio="none" role="img"
+       aria-label="Höhenprofil von {{ '%.0f' | format(profile.min) }} bis {{ '%.0f' | format(profile.max) }} Metern">
+    <polygon points="{{ profile.area }}" class="area"/>
+    <polyline points="{{ profile.line }}" class="line"/>
+  </svg>
+  <figcaption>{{ "%.0f" | format(profile.min) }} m – {{ "%.0f" | format(profile.max) }} m</figcaption>
+</figure>
+{% endif %}
+
+<h2>Aus dem Fediverse</h2>
+<p class="reactions">♥ {{ likes | length }} Likes · ⟲ {{ boosts | length }} Boosts · 💬 {{ replies | length }} Antworten</p>
+{% for r in replies %}
+  <article class="reply">
+    <p class="who"><a href="{{ r.actor_profile }}" rel="nofollow noopener">{{ r.actor_name }}</a> <span>{{ r.actor_handle }}</span></p>
+    <p>{{ r.content }}</p>
+    <p class="meta"><a href="{{ r.url }}" rel="nofollow noopener">{{ r.created_at | local_time }}</a></p>
+  </article>
+{% endfor %}
+<p class="hint">Suche in Mastodon nach <code>{{ settings.base_url }}/activities/{{ a.id }}</code>, um zu antworten.</p>
+
+{% if is_owner %}
+<div class="owner-actions">
+  <a href="/activities/{{ a.id }}/gpx">Original-GPX herunterladen</a>
+  <form method="post" action="/activities/{{ a.id }}/delete" onsubmit="return confirm('Aktivität wirklich löschen? Sie wird auch im Fediverse gelöscht.')">
+    <button class="danger">Löschen</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

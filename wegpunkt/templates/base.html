@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ settings.display_name }}{% endblock %} · Wegpunkt</title>
+  <link rel="alternate" type="application/activity+json" href="{{ settings.actor_url }}">
+  <link rel="stylesheet" href="/static/style.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">◆ Wegpunkt</a>
+    <nav>
+      {% if is_owner %}
+        <a class="button" href="/upload">+ Aktivität</a>
+        <form method="post" action="/logout"><button class="link">Abmelden</button></form>
+      {% else %}
+        <a href="/login">Anmelden</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <footer>Folge im Fediverse: <code>{{ settings.handle }}</code></footer>
+</body>
+</html>

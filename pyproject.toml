@@ -1,0 +1,30 @@
+[project]
+name = "wegpunkt"
+version = "0.1.0"
+description = "Ein Strava-ähnlicher Aktivitäten-Tracker für das Fediverse (Einzelnutzer-Instanz)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "itsdangerous>=2.2",
+    "httpx>=0.27",
+    "cryptography>=43",
+    "gpxpy>=1.6",
+    "pillow>=10",
+    "tzdata",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["wegpunkt"]
+
+[tool.setuptools.package-data]
+wegpunkt = ["templates/*.html", "static/*", "static/leaflet/*", "static/leaflet/images/*"]

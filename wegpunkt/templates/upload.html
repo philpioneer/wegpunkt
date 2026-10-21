@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Aktivität hochladen{% endblock %}
+{% block content %}
+<h1>Aktivität hochladen</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form class="form" method="post" action="/upload" enctype="multipart/form-data">
+  <label>GPX-Datei <input type="file" name="file" accept=".gpx,application/gpx+xml" required></label>
+  <label>Sportart
+    <select name="sport">
+      <option value="auto">Aus Datei erkennen</option>
+      {% for key, (name, emoji) in sports.items() %}<option value="{{ key }}">{{ emoji }} {{ name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Titel <input name="title" maxlength="200" placeholder="Wird sonst aus der Datei übernommen"></label>
+  <label>Beschreibung <textarea name="description" rows="4" maxlength="5000"></textarea></label>
+  <button class="button">Hochladen und veröffentlichen</button>
+  <p class="hint">Die Aktivität ist öffentlich und wird an alle Follower geschickt.</p>
+</form>
+{% endblock %}
