@@ -10,7 +10,7 @@
   <meta name="theme-color" content="#0d0f12" media="(prefers-color-scheme: dark)">
   <script nonce="{{ nonce }}">try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="alternate" type="application/activity+json" href="{{ settings.actor_url }}">
+  {% if not private_mode %}<link rel="alternate" type="application/activity+json" href="{{ settings.actor_url }}">{% endif %}
   <link rel="preload" href="/static/fonts/barlow-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/style.css?v={{ version }}">
   {% block head %}{% endblock %}
@@ -43,10 +43,14 @@
 
   <footer class="site-footer wrap">
     <span>{{ logo(16) }} Arriba</span>
+    {% if private_mode %}
+      <span class="muted">{{ icon("lock", 14) }} Private Instanz</span>
+    {% else %}
     <button class="copy-inline" data-copy="{{ settings.handle }}" title="Handle kopieren">
       Folgen im Fediverse: <code>{{ settings.handle }}</code>
       <span class="copy-ico">{{ icon("copy", 14) }}</span><span class="copied-ico">{{ icon("check", 14) }}</span>
     </button>
+    {% endif %}
   </footer>
 
   <script src="/static/app.js?v={{ version }}" defer></script>

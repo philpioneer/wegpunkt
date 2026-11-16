@@ -56,6 +56,19 @@
 <label class="switch">
   <input type="checkbox" name="private" value="1"{% if checked %} checked{% endif %}>
   <span class="switch-track" aria-hidden="true"></span>
-  <span class="switch-text"><b>Privat</b><small>Nur du siehst die Aktivität. Sie geht nicht ins Fediverse.</small></span>
+  <span class="switch-text"><b>Privat</b><small>Nur du siehst die Aktivität. Sie wird nirgends veröffentlicht.</small></span>
 </label>
+{%- endmacro %}
+
+
+{# Schalter für den Mastodon-Beitrag. Erscheint nur, wenn ein Account verbunden ist. #}
+{% macro mastodon_switch(acct, checked, already_posted=false) -%}
+{% if acct %}
+<label class="switch">
+  <input type="checkbox" name="mastodon" value="1"{% if checked or already_posted %} checked{% endif %}{% if already_posted %} disabled{% endif %}>
+  <span class="switch-track" aria-hidden="true"></span>
+  <span class="switch-text"><b>Auf Mastodon posten</b>
+    <small>{% if already_posted %}Schon gepostet. Änderungen werden dort übernommen.{% else %}Erscheint als Beitrag von {{ acct }}.{% endif %}</small></span>
+</label>
+{% endif %}
 {%- endmacro %}

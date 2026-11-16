@@ -25,6 +25,8 @@ class Settings:
     privacy_radius_m: float = 200.0
     # Vorschaubilder für Fediverse-Beiträge mit Kartenhintergrund von OpenStreetMap
     map_previews: bool = True
+    # Privat: alle Seiten nur nach Anmeldung, keine Fediverse-Endpunkte
+    private: bool = False
 
     @property
     def base_url(self) -> str:
@@ -109,4 +111,5 @@ def load_settings(env_file: Path | None = None) -> Settings:
         timezone=env.get("ARRIBA_TIMEZONE", "Europe/Berlin"),
         privacy_radius_m=float(env.get("ARRIBA_PRIVACY_RADIUS_M", "200")),
         map_previews=env.get("ARRIBA_MAP_PREVIEWS", "1").lower() not in ("0", "false", "no"),
+        private=env.get("ARRIBA_PRIVATE", "0").lower() in ("1", "true", "yes"),
     )

@@ -177,6 +177,38 @@
   {% endif %}
 {% endif %}
 
+{% set post = a.extra.mastodon %}
+{% if post or a.extra.mastodon_error or (mastodon_acct and is_owner and a.visibility == "public") %}
+<section class="panel social" id="mastodon">
+  <div class="panel-head">
+    <h2 class="eyebrow">Mastodon</h2>
+    {% if post %}
+    <div class="reactions">
+      <span title="Favoriten">{{ icon("heart", 16) }} {{ (post.counts or {}).favourites or 0 }}</span>
+      <span title="Geteilt">{{ icon("repeat", 16) }} {{ (post.counts or {}).reblogs or 0 }}</span>
+      <span title="Antworten auf Mastodon">{{ icon("message", 16) }} {{ (post.counts or {}).replies or 0 }}</span>
+    </div>
+    {% endif %}
+  </div>
+  {% if a.extra.mastodon_error and is_owner %}
+    <div class="alert" role="alert">{{ icon("alert", 18) }}<span>{{ a.extra.mastodon_error }}</span></div>
+  {% endif %}
+  <div class="danger-row">
+    {% if post %}
+      <a class="btn btn-ghost btn-sm" href="{{ post.url }}" rel="noopener">{{ icon("globe", 16) }} Beitrag auf Mastodon ansehen</a>
+    {% else %}
+      <span class="muted">Noch nicht auf Mastodon gepostet.</span>
+    {% endif %}
+    {% if is_owner and (not post or a.extra.mastodon_error) %}
+      <form method="post" action="/activities/{{ a.id }}/mastodon">
+        <button class="btn btn-primary btn-sm">{{ icon("upload", 16) }} {{ "Erneut versuchen" if a.extra.mastodon_error else "Jetzt posten" }}</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if not private_mode %}
 <section class="panel social">
   <div class="panel-head">
     <h2 class="eyebrow">Aus dem Fediverse</h2>
@@ -188,7 +220,7 @@
   </div>
 
   {% if a.visibility != "public" %}
-    <p class="muted">Diese Aktivität ist privat. Nur du siehst sie, und sie wird nicht ins Fediverse geschickt.</p>
+    <p class="muted">Diese Aktivität ist privat. Nur du siehst sie, und sie wird nirgends veröffentlicht.</p>
   {% else %}
     {% if likes or boosts %}
     <div class="avatars">
@@ -221,6 +253,7 @@
     </div>
   {% endif %}
 </section>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

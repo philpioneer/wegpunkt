@@ -828,3 +828,8 @@ input[type="file"]::file-selector-button {
 }
 :root[data-theme="dark"] .base-tiles { filter: invert(1) hue-rotate(180deg) saturate(.55) brightness(.92) contrast(.88); }
 .leaflet-control-attribution, .leaflet-control-attribution a { color: var(--ink-2) !important; }
+
+.badge-ok { background: var(--ok-soft); color: var(--ok); }
+.steps { margin: 0 0 18px; padding-left: 22px; display: grid; gap: 6px; color: var(--ink-2); }
+.social > p.muted { margin: 0 0 16px; }
+span.handle { cursor: default; }

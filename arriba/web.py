@@ -11,7 +11,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-from . import fmt, render, stats, tracks, workouts
+from . import fmt, mastodon, render, stats, tracks, workouts
 from .ap import APResponse
 from .federation import wants_activitypub
 from .sports import GPS_SPORTS, SPORTS, sport
@@ -97,6 +97,7 @@ def register(app: FastAPI, ctx: "Context") -> None:
             "now_local": datetime.now(ctx.tz).strftime("%Y-%m-%dT%H:%M"),
             "workout_templates": templates_, "editing": None,
         }
+        page["values"] = {"mastodon": "1"}
         return ctx.render(request, "upload.html", status_code=status_code, **{**page, **extra})
 
     @app.get("/upload", response_class=HTMLResponse)
@@ -108,16 +109,18 @@ def register(app: FastAPI, ctx: "Context") -> None:
         template = db.get_activity(source) if source else None
         if template and template.get("workout"):
             extra = {"rows": workouts.form_rows(template["workout"]),
-                     "values": {"title": template["title"],
+                     "values": {"title": template["title"], "mastodon": "1",
                                 "duration_min": _minutes(template["duration_s"])}}
         return upload_page(request, "workout", **extra)
 
-    def publish(a: dict[str, Any], background: BackgroundTasks) -> RedirectResponse:
+    def publish(a: dict[str, Any], background: BackgroundTasks, to_mastodon: bool) -> RedirectResponse:
         db.add_activity(a)
         a = db.get_activity(a["id"])  # einheitliche Form samt Standardwerten
         if a["visibility"] == "public":
             fed.broadcast(fed.create(a))
             background.add_task(fed.process_queue)
+            if to_mastodon and ctx.mastodon_config():
+                background.add_task(ctx.crosspost, a["id"])
         return RedirectResponse(f"/activities/{a['id']}", status_code=303)
 
     @app.post("/upload")
@@ -129,9 +132,11 @@ def register(app: FastAPI, ctx: "Context") -> None:
         description: str = Form(""),
         sport: str = Form("auto"),
         private: str = Form(""),
+        mastodon: str = Form(""),
     ):
         ctx.require_owner(request)
-        values = {"title": title, "description": description, "sport": sport, "private": private}
+        values = {"title": title, "description": description, "sport": sport, "private": private,
+                  "mastodon": mastodon}
 
         def fail(message: str) -> HTMLResponse:
             return upload_page(request, "gps", status_code=400, values=values, error=message)
@@ -159,7 +164,7 @@ def register(app: FastAPI, ctx: "Context") -> None:
         await run_in_threadpool(ctx.apply_track, a, track)  # lädt ggf. Kartenkacheln
         suffix = (".fit" if track.source == "fit" else ".gpx") + (".gz" if data[:2] == b"\x1f\x8b" else "")
         (ctx.original_dir / f"{a['id']}{suffix}").write_bytes(data)
-        return publish(a, background)
+        return publish(a, background, bool(mastodon))
 
     def read_workout_form(
         title: str, description: str, started: str, duration_min: str,
@@ -208,6 +213,7 @@ def register(app: FastAPI, ctx: "Context") -> None:
         started: str = Form(""),
         duration_min: str = Form(""),
         private: str = Form(""),
+        mastodon: str = Form(""),
         exercise_name: list[str] = Form([]),
         exercise_sets: list[str] = Form([]),
         exercise_unit: list[str] = Form([]),
@@ -218,7 +224,7 @@ def register(app: FastAPI, ctx: "Context") -> None:
             fields, _, _ = read_workout_form(title, description, started, duration_min,
                                              exercise_name, exercise_sets, exercise_unit, exercise_weight)
         except workouts.WorkoutError as exc:
-            values = {**exc.values, "private": private}  # type: ignore[attr-defined]
+            values = {**exc.values, "private": private, "mastodon": mastodon}  # type: ignore[attr-defined]
             return upload_page(request, "workout", status_code=400, values=values,
                                rows=exc.rows, error=str(exc))  # type: ignore[attr-defined]
         return publish({
@@ -226,7 +232,7 @@ def register(app: FastAPI, ctx: "Context") -> None:
             "visibility": "private" if private else "public",
             "distance_m": 0.0, "track": [], "has_image": False, "created_at": ctx.now(),
             **fields,
-        }, background)
+        }, background, bool(mastodon))
 
     # Aktivität ----------------------------------------------------------------
 
@@ -237,13 +243,15 @@ def register(app: FastAPI, ctx: "Context") -> None:
         return a
 
     @app.get("/activities/{activity_id}")
-    def activity_page(request: Request, activity_id: str):
+    def activity_page(request: Request, activity_id: str, background: BackgroundTasks):
         a = load(request, activity_id)
         if wants_activitypub(request.headers.get("accept")):
             if a["visibility"] != "public":
                 raise HTTPException(status_code=404)
             return APResponse(fed.note(a))
 
+        if ctx.mastodon_stale(a):
+            background.add_task(ctx.crosspost_sync, activity_id)
         sp = sport(a["sport"])
         interactions = db.list_interactions(activity_id)
         page: dict[str, Any] = {
@@ -299,6 +307,7 @@ def register(app: FastAPI, ctx: "Context") -> None:
         description: str = Form(""),
         sport: str = Form(""),
         private: str = Form(""),
+        mastodon: str = Form(""),
         started: str = Form(""),
         duration_min: str = Form(""),
         exercise_name: list[str] = Form([]),
@@ -330,7 +339,14 @@ def register(app: FastAPI, ctx: "Context") -> None:
 
         a["visibility"] = "private" if private else "public"
         a["updated_at"] = ctx.now()
+        posted = a["extra"].get("mastodon")
+        if posted and a["visibility"] != "public":
+            # Privat gestellt: den Beitrag bei Mastodon wieder entfernen
+            a["extra"].pop("mastodon")
+            background.add_task(ctx.crosspost_delete, posted["id"])
         db.update_activity(a)
+        if a["visibility"] == "public" and (posted or mastodon):
+            background.add_task(ctx.crosspost, activity_id)
 
         is_public = a["visibility"] == "public"
         if was_public and is_public:
@@ -353,7 +369,17 @@ def register(app: FastAPI, ctx: "Context") -> None:
         if a["visibility"] == "public":
             fed.broadcast(fed.delete(activity_id))
             background.add_task(fed.process_queue)
+        if posted := a["extra"].get("mastodon"):
+            background.add_task(ctx.crosspost_delete, posted["id"])
         return RedirectResponse("/", status_code=303)
+
+    @app.post("/activities/{activity_id}/mastodon")
+    def post_to_mastodon(request: Request, activity_id: str):
+        """Von Hand anstoßen: zum ersten Mal posten oder nach einem Fehler erneut versuchen."""
+        ctx.require_owner(request)
+        load(request, activity_id)
+        ctx.crosspost(activity_id)
+        return RedirectResponse(f"/activities/{activity_id}#mastodon", status_code=303)
 
     @app.get("/activities/{activity_id}/original")
     def download_original(request: Request, activity_id: str):
@@ -380,7 +406,8 @@ def register(app: FastAPI, ctx: "Context") -> None:
 
     def settings_page(request: Request, status_code: int = 200, **extra: Any) -> HTMLResponse:
         page = {"error": None, "saved": False, "followers": db.count_followers(),
-                "pending": db.count_deliveries()}
+                "pending": db.count_deliveries(), "mastodon": ctx.mastodon_config(),
+                "mastodon_error": None, "mastodon_values": {}, "visibilities": mastodon.VISIBILITIES}
         return ctx.render(request, "settings.html", status_code=status_code, **{**page, **extra})
 
     @app.get("/settings", response_class=HTMLResponse)
@@ -419,6 +446,43 @@ def register(app: FastAPI, ctx: "Context") -> None:
         fed.broadcast(fed.update_actor())
         background.add_task(fed.process_queue)
         return RedirectResponse("/settings?saved=1", status_code=303)
+
+    @app.post("/settings/mastodon")
+    def connect_mastodon(
+        request: Request,
+        url: str = Form(""),
+        token: str = Form(""),
+        visibility: str = Form("public"),
+        action: str = Form("connect"),
+    ):
+        ctx.require_owner(request)
+        if action == "disconnect":
+            db.set_profile({"mastodon_url": "", "mastodon_token": "", "mastodon_acct": ""})
+            return RedirectResponse("/settings#mastodon", status_code=303)
+
+        current = ctx.mastodon_config()
+        visibility = visibility if visibility in mastodon.VISIBILITIES else "public"
+        values = {"url": url, "visibility": visibility}
+
+        def fail(message: str) -> HTMLResponse:
+            return settings_page(request, status_code=400, mastodon_error=message, mastodon_values=values)
+
+        token = token.strip() or (current or {}).get("token", "")
+        if not token:
+            return fail("Bitte füge das Zugangs-Token ein.")
+        try:
+            base = mastodon.normalize_url(url or (current or {}).get("url", ""))
+            client = mastodon.Mastodon(base, token, transport=ctx.mastodon_transport)
+            try:
+                account = client.verify()
+            finally:
+                client.close()
+        except mastodon.MastodonError as exc:
+            return fail(str(exc))
+        host = base.split("//", 1)[1]
+        db.set_profile({"mastodon_url": base, "mastodon_token": token,
+                        "mastodon_acct": f"@{account['acct']}@{host}", "mastodon_visibility": visibility})
+        return RedirectResponse("/settings#mastodon", status_code=303)
 
 
 def _minutes(seconds: float | None) -> str:

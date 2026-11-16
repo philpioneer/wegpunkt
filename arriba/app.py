@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, ap, fmt, render, sports, stats, tracks, web, workouts
+from . import __version__, ap, fmt, mastodon, render, sports, stats, tracks, web, workouts
 from .config import Settings, load_settings
 from .db import Database, now_iso
 from .federation import Federation
@@ -33,6 +33,8 @@ LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_S = 15 * 60
 SESSION_MAX_AGE_S = 30 * 24 * 3600
 PREVIEW_WITH_MAP = "map-1"
+MASTODON_SYNC_S = 600  # so oft werden Likes und Antworten von Mastodon nachgeladen
+PUBLIC_PATHS = ("/login", "/static/", "/robots.txt")  # im privaten Modus ohne Anmeldung erreichbar
 AVATAR_DESIGN = "arriba-1"  # ändert sich, wenn das Standard-Profilbild neu gestaltet wird
 WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 MONTHS = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sep.", "Okt.", "Nov.", "Dez."]
@@ -92,6 +94,7 @@ class Context:
         self.fed = Federation(s, self.db, load_or_create_key(s.data_dir / "private_key.pem"), self.profile)
         self.tz = ZoneInfo(s.timezone)
         self.throttle = LoginThrottle()
+        self.mastodon_transport = None  # nur für Tests
         self.templates = Jinja2Templates(directory=HERE / "templates")
         self._setup_templates()
 
@@ -110,6 +113,110 @@ class Context:
             "avatar_version": version,
             "custom_avatar": stored.get("custom_avatar") == "1",
         }
+
+    # Mastodon -------------------------------------------------------------
+
+    def mastodon_config(self) -> dict[str, str] | None:
+        stored = self.db.get_profile()
+        if not stored.get("mastodon_url") or not stored.get("mastodon_token"):
+            return None
+        return {
+            "url": stored["mastodon_url"],
+            "token": stored["mastodon_token"],
+            "acct": stored.get("mastodon_acct", ""),
+            "visibility": stored.get("mastodon_visibility", "public"),
+        }
+
+    def mastodon_client(self, config: dict[str, str] | None = None) -> mastodon.Mastodon | None:
+        config = config or self.mastodon_config()
+        if not config:
+            return None
+        return mastodon.Mastodon(config["url"], config["token"], transport=self.mastodon_transport)
+
+    def _save_extra(self, activity_id: str, **changes: Any) -> None:
+        """Ändert einzelne Zusatzangaben, ohne zwischenzeitliche Änderungen zu überschreiben."""
+        a = self.db.get_activity(activity_id)
+        if a is None:
+            return
+        for key, value in changes.items():
+            if value is None:
+                a["extra"].pop(key, None)
+            else:
+                a["extra"][key] = value
+        self.db.update_activity(a)
+
+    def crosspost(self, activity_id: str) -> str | None:
+        """Veröffentlicht oder aktualisiert den Mastodon-Beitrag. Gibt einen Fehlertext zurück."""
+        a = self.db.get_activity(activity_id)
+        config = self.mastodon_config()
+        if a is None or a["visibility"] != "public" or not config:
+            return None
+        client = self.mastodon_client(config)
+        previous = a["extra"].get("mastodon") or {}
+        link = None if self.settings.private else self.fed.activity_url(activity_id)
+        text = mastodon.compose_status(a, link)
+        try:
+            media_ids: list[str] = []
+            media_version = None
+            image = self.media_dir / f"{activity_id}.png"
+            if a["has_image"] and image.exists():
+                media_version = image.stat().st_mtime_ns
+                if previous.get("media_id") and previous.get("media_version") == media_version:
+                    media_ids = [previous["media_id"]]
+                else:
+                    media_ids = [client.upload_media(image, f"Karte der Route: {a['title']}")]
+            if previous.get("id"):
+                status = client.edit(previous["id"], text, media_ids)
+            else:
+                status = client.post(text, media_ids, config["visibility"], key=f"arriba-{activity_id}")
+        except mastodon.MastodonError as exc:
+            log.warning("Mastodon-Beitrag für %s fehlgeschlagen: %s", activity_id, exc)
+            self._save_extra(activity_id, mastodon_error=str(exc))
+            return str(exc)
+        finally:
+            client.close()
+        self._save_extra(activity_id, mastodon_error=None, mastodon={
+            **previous,
+            "id": str(status["id"]),
+            "url": status.get("url") or previous.get("url"),
+            "media_id": media_ids[0] if media_ids else None,
+            "media_version": media_version,
+        })
+        return None
+
+    def crosspost_delete(self, status_id: str) -> None:
+        client = self.mastodon_client()
+        if client is None:
+            return
+        try:
+            client.delete(status_id)
+        except mastodon.MastodonError as exc:
+            log.warning("Mastodon-Beitrag %s ließ sich nicht löschen: %s", status_id, exc)
+        finally:
+            client.close()
+
+    def crosspost_sync(self, activity_id: str) -> None:
+        """Holt die Zahl der Likes, Boosts und Antworten von Mastodon."""
+        a = self.db.get_activity(activity_id)
+        client = self.mastodon_client()
+        post = (a or {}).get("extra", {}).get("mastodon")
+        if not post or client is None:
+            return
+        try:
+            status = client.status(post["id"])
+        except mastodon.MastodonError as exc:
+            log.info("Mastodon-Zahlen für %s nicht abrufbar: %s", activity_id, exc)
+            status = {}
+        finally:
+            client.close()
+        counts = {k: int(status.get(f"{k}_count", post.get("counts", {}).get(k, 0)) or 0)
+                  for k in ("favourites", "reblogs", "replies")}
+        self._save_extra(activity_id, mastodon={**post, "counts": counts, "synced_at": time.time()})
+
+    @staticmethod
+    def mastodon_stale(a: dict[str, Any]) -> bool:
+        post = a["extra"].get("mastodon")
+        return bool(post) and time.time() - post.get("synced_at", 0) > MASTODON_SYNC_S
 
     # Anmeldung ------------------------------------------------------------
 
@@ -131,7 +238,9 @@ class Context:
         return self.templates.TemplateResponse(
             request, name,
             {"is_owner": self.is_owner(request), "profile": self.profile(),
-             "nonce": getattr(request.state, "nonce", ""), **ctx},
+             "nonce": getattr(request.state, "nonce", ""),
+             "private_mode": self.settings.private,
+             "mastodon_acct": (self.mastodon_config() or {}).get("acct"), **ctx},
             status_code=status_code,
         )
 
@@ -285,7 +394,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
         request.state.nonce = secrets.token_urlsafe(16)
+        path = request.url.path
+        if s.private and not ctx.is_owner(request) and not path.startswith(PUBLIC_PATHS):
+            # Privater Modus: ohne Anmeldung gibt es nur die Anmeldeseite.
+            if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+                return RedirectResponse("/login", status_code=303)
+            return Response(status_code=404)
         response: Response = await call_next(request)
+        if s.private:
+            response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault("X-Frame-Options", "DENY")
@@ -319,6 +436,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=exc.detail if exc.status_code not in (404, 500) else None,
             )
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers)
+
+    @app.get("/robots.txt")
+    def robots():
+        rule = "Disallow: /" if s.private else "Disallow: /login\nDisallow: /upload\nDisallow: /settings"
+        return Response(f"User-agent: *\n{rule}\n", media_type="text/plain")
 
     web.register(app, ctx)
     ap.register(app, ctx)

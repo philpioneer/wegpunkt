@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon, logo %}
-{% from "_forms.html" import exercise_editor, sport_picker, private_switch %}
+{% from "_forms.html" import exercise_editor, sport_picker, private_switch, mastodon_switch %}
 {% block title %}Eintragen{% endblock %}
 {% block content %}
 <header class="page-head">
@@ -34,6 +34,7 @@
     <label class="label" for="description">Beschreibung <span class="optional">optional</span></label>
     <textarea id="description" name="description" rows="3" maxlength="5000" placeholder="Wie lief's?">{{ values.description or '' }}</textarea>
   </div>
+  {{ mastodon_switch(mastodon_acct, values.mastodon) }}
   {{ private_switch(values.private) }}
 
   <div class="form-foot">
@@ -75,6 +76,7 @@
     <label class="label" for="description">Notizen <span class="optional">optional</span></label>
     <textarea id="description" name="description" rows="3" maxlength="5000" placeholder="Fortschritte, Gefühl, nächstes Ziel …">{{ values.description or '' }}</textarea>
   </div>
+  {{ mastodon_switch(mastodon_acct, values.mastodon) }}
   {{ private_switch(values.private) }}
 
   <div class="form-foot">

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon, logo %}
-{% from "_forms.html" import exercise_editor, sport_picker, private_switch %}
+{% from "_forms.html" import exercise_editor, sport_picker, private_switch, mastodon_switch %}
 {% block title %}{{ a.title }} bearbeiten{% endblock %}
 {% block content %}
 <div class="page-top">
@@ -40,10 +40,11 @@
     <label class="label" for="description">{{ "Notizen" if a.kind == "workout" else "Beschreibung" }} <span class="optional">optional</span></label>
     <textarea id="description" name="description" rows="4" maxlength="5000">{{ values.description }}</textarea>
   </div>
+  {{ mastodon_switch(mastodon_acct, false, a.extra.mastodon is defined) }}
   {{ private_switch(values.private) }}
 
   <div class="form-foot">
-    <p class="note">{{ icon("globe", 14) }} Änderungen an öffentlichen Aktivitäten gehen auch an deine Follower.</p>
+    <p class="note">{{ icon("globe", 14) }} Änderungen werden auch in bereits veröffentlichten Beiträgen übernommen.</p>
     <button class="btn btn-primary s-{{ a.sport }}">{{ icon("check", 18) }} Speichern</button>
   </div>
 </form>
@@ -55,7 +56,7 @@
       <a class="btn btn-ghost btn-sm" href="/activities/{{ a.id }}/original">{{ icon("download", 16) }} Originaldatei herunterladen</a>
     {% else %}<span></span>{% endif %}
     <form method="post" action="/activities/{{ a.id }}/delete"
-          data-confirm="Aktivität wirklich löschen? Sie wird auch im Fediverse gelöscht.">
+          data-confirm="Aktivität wirklich löschen? Auch der Beitrag bei Mastodon wird gelöscht.">
       <button class="btn btn-danger btn-sm">{{ icon("trash", 16) }} Aktivität löschen</button>
     </form>
   </div>

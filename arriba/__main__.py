@@ -14,4 +14,6 @@ if __name__ == "__main__":
         host=env.get("ARRIBA_HOST", "127.0.0.1"),
         port=int(env.get("ARRIBA_PORT", "8000")),
         proxy_headers=True,
+        # Von welchen Adressen X-Forwarded-For gilt. Hinter dem Proxy eines Hosters: "*"
+        forwarded_allow_ips=env.get("ARRIBA_FORWARDED_IPS", "127.0.0.1"),
     )

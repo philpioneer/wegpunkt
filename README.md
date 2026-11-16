@@ -25,6 +25,13 @@ Fediverse spricht. Eine Instanz gehört genau einer Person. „Arriba“ ist Spa
 - Zustellungen laufen über eine **Warteschlange**: Ist ein Server nicht erreichbar, wird es über gut
   drei Tage hinweg erneut versucht
 
+**Mastodon**
+- Mit einem bestehenden Mastodon-Account verbinden: Neue Aktivitäten erscheinen dort automatisch
+  als Beitrag mit Karte und Kennzahlen. Bearbeiten und Löschen werden übernommen, Favoriten und
+  Antworten werden angezeigt.
+- **Privater Modus** (`ARRIBA_PRIVATE=1`): Alle Seiten sind nur nach Anmeldung sichtbar, und die
+  Instanz ist im Fediverse nicht auffindbar. Gepostet wird dann nur über deinen Mastodon-Account.
+
 **Privatsphäre und Sicherheit**
 - **Keine Registrierung**: Es gibt nur ein Passwort für dich. Nach 5 Fehlversuchen ist die Anmeldung
   15 Minuten gesperrt.
@@ -58,6 +65,9 @@ Ausprobieren reicht ein Tunnel, z. B. `cloudflared tunnel --url http://localhost
 angezeigte Domain trägst du dann als `ARRIBA_DOMAIN` ein.
 
 ## Auf einem Server betreiben
+
+**Uberspace:** Dafür gibt es eine eigene Schritt-für-Schritt-Anleitung in
+[`deploy/UBERSPACE.md`](deploy/UBERSPACE.md).
 
 Du brauchst eine eigene (Sub-)Domain mit HTTPS, z. B. `sport.example.de`.
 
@@ -104,6 +114,7 @@ erkannt und übernommen.
 | `arriba/app.py` | Baut die Anwendung zusammen: Einstellungen, Sicherheits-Header, Fehlerseiten |
 | `arriba/web.py` | Seiten: Übersicht, Aktivität, Eintragen, Bearbeiten, Profil |
 | `arriba/ap.py` | ActivityPub-Endpunkte: WebFinger, Actor, Outbox, Inbox, NodeInfo |
+| `arriba/mastodon.py` | Beiträge über die Mastodon-Schnittstelle, Text des Beitrags |
 | `arriba/federation.py` | ActivityPub-Objekte, fremde Accounts laden, Warteschlange, Inbox verarbeiten |
 | `arriba/httpsig.py` | HTTP-Signaturen erstellen und prüfen |
 | `arriba/tracks.py` | GPX und FIT einlesen und auswerten, Privatzone |

@@ -1,6 +1,6 @@
 [project]
 name = "arriba"
-version = "0.3.0"
+version = "0.4.0"
 description = "Ein Strava-ähnlicher Aktivitäten-Tracker für das Fediverse (Einzelnutzer-Instanz)"
 requires-python = ">=3.11"
 dependencies = [

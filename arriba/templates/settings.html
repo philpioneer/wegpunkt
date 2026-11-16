@@ -4,11 +4,11 @@
 {% block content %}
 <header class="page-head">
   <h1 class="display">Profil</h1>
-  <p class="lede">So erscheinst du hier und im Fediverse.</p>
+  <p class="lede">{{ "Dein Profil und die Verbindung zu Mastodon." if private_mode else "So erscheinst du hier und im Fediverse." }}</p>
 </header>
 
 {% if error %}<div class="alert" role="alert">{{ icon("alert", 18) }}<span>{{ error }}</span></div>{% endif %}
-{% if saved %}<div class="alert alert-ok" role="status">{{ icon("check", 18) }}<span>Gespeichert. Deine Follower bekommen die Änderung.</span></div>{% endif %}
+{% if saved %}<div class="alert alert-ok" role="status">{{ icon("check", 18) }}<span>Gespeichert.</span></div>{% endif %}
 
 <form class="panel form" method="post" action="/settings" enctype="multipart/form-data">
   <div class="avatar-field">
@@ -35,6 +35,53 @@
   </div>
 </form>
 
+<section class="panel" id="mastodon">
+  <div class="panel-head">
+    <h2 class="eyebrow">Mastodon</h2>
+    {% if mastodon %}<span class="badge badge-ok">{{ icon("check", 13) }} Verbunden als {{ mastodon.acct }}</span>{% endif %}
+  </div>
+  {% if mastodon_error %}<div class="alert" role="alert">{{ icon("alert", 18) }}<span>{{ mastodon_error }}</span></div>{% endif %}
+  <p class="muted">Neue Aktivitäten erscheinen automatisch als Beitrag auf deinem Mastodon-Account, mit Karte und Kennzahlen.
+     Bearbeitest oder löschst du eine Aktivität, wird der Beitrag angepasst.</p>
+  {% if not mastodon %}
+  <ol class="steps">
+    <li>In Mastodon: <b>Einstellungen → Entwicklung → Neue Anwendung</b>.</li>
+    <li>Name: „Arriba“. Berechtigungen: <code>read</code>, <code>write:statuses</code> und <code>write:media</code> ankreuzen. Speichern.</li>
+    <li>Die Anwendung öffnen und <b>„Dein Zugangs-Token“</b> kopieren.</li>
+  </ol>
+  {% endif %}
+  <form class="form" method="post" action="/settings/mastodon">
+    <div class="grid-3">
+      <div class="field">
+        <label class="label" for="m-url">Deine Instanz</label>
+        <input id="m-url" name="url" value="{{ mastodon_values.url or (mastodon.url if mastodon else '') }}" placeholder="https://mastodon.social" autocomplete="off" required>
+      </div>
+      <div class="field">
+        <label class="label" for="m-token">Zugangs-Token</label>
+        <input id="m-token" name="token" type="password" autocomplete="off" placeholder="{{ 'gespeichert, leer lassen zum Behalten' if mastodon else 'hier einfügen' }}"{% if not mastodon %} required{% endif %}>
+      </div>
+      <div class="field">
+        <label class="label" for="m-vis">Sichtbarkeit der Beiträge</label>
+        <select id="m-vis" name="visibility">
+          {% set current = mastodon_values.visibility or (mastodon.visibility if mastodon else "public") %}
+          {% for key, label in visibilities.items() %}<option value="{{ key }}"{% if key == current %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-foot">
+      {% if mastodon %}<button class="btn btn-danger btn-sm" name="action" value="disconnect" formnovalidate>Verbindung trennen</button>{% else %}<span></span>{% endif %}
+      <button class="btn btn-primary" name="action" value="connect">{{ icon("check", 18) }} {{ "Speichern" if mastodon else "Verbinden und prüfen" }}</button>
+    </div>
+  </form>
+</section>
+
+{% if private_mode %}
+<section class="panel">
+  <div class="panel-head"><h2 class="eyebrow">Privater Modus</h2><span class="badge badge-muted">{{ icon("lock", 13) }} aktiv</span></div>
+  <p class="muted">Alle Seiten sind nur nach Anmeldung sichtbar, und die Instanz ist im Fediverse nicht auffindbar.
+     Zum Öffnen in der Datei <code>.env</code> die Zeile <code>ARRIBA_PRIVATE=1</code> entfernen und neu starten.</p>
+</section>
+{% else %}
 <section class="panel">
   <div class="panel-head"><h2 class="eyebrow">Fediverse</h2></div>
   <dl class="facts facts-plain">
@@ -47,4 +94,5 @@
   </dl>
   <p class="note">Handle und Domain stehen in der Datei <code>.env</code> und sollten nach dem Start nicht mehr geändert werden.</p>
 </section>
+{% endif %}
 {% endblock %}

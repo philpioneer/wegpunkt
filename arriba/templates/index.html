@@ -7,10 +7,14 @@
     <img class="avatar-img avatar-xl" src="/media/avatar.png?v={{ profile.avatar_version }}" alt="" width="84" height="84">
     <div class="hero-text">
       <h1 class="display">{{ profile.display_name }}</h1>
-      <button class="handle" data-copy="{{ settings.handle }}" title="Handle kopieren">
-        <span>{{ settings.handle }}</span>
-        <span class="copy-ico">{{ icon("copy", 14) }}</span><span class="copied-ico">{{ icon("check", 14) }}</span>
-      </button>
+      {% if private_mode %}
+        <span class="handle">{{ icon("lock", 14) }}<span>Private Instanz{% if mastodon_acct %} · postet als {{ mastodon_acct }}{% endif %}</span></span>
+      {% else %}
+        <button class="handle" data-copy="{{ settings.handle }}" title="Handle kopieren">
+          <span>{{ settings.handle }}</span>
+          <span class="copy-ico">{{ icon("copy", 14) }}</span><span class="copied-ico">{{ icon("check", 14) }}</span>
+        </button>
+      {% endif %}
       {% if profile.summary %}<p class="lede description">{{ profile.summary }}</p>{% endif %}
     </div>
   </div>
@@ -18,7 +22,7 @@
     <div><dt>Aktivitäten</dt><dd>{{ totals.count }}</dd></div>
     <div><dt>Kilometer</dt><dd>{{ "{:,.0f}".format(totals.distance_m / 1000).replace(",", ".") }}</dd></div>
     <div><dt>Stunden</dt><dd>{{ "{:,.0f}".format(totals.seconds / 3600).replace(",", ".") }}</dd></div>
-    <div><dt>Follower</dt><dd>{{ followers }}</dd></div>
+    {% if not private_mode %}<div><dt>Follower</dt><dd>{{ followers }}</dd></div>{% endif %}
   </dl>
 </section>
 

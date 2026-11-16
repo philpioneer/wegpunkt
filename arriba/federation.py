@@ -16,13 +16,13 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from . import __version__, fmt
+from . import __version__
 from .config import Settings
 from .db import Database
 from .httpsig import public_key_pem, sign_request
+from .mastodon import stats_line
 from .sports import sport
 from .workouts import format_exercise
-from .workouts import summary as workout_summary
 
 log = logging.getLogger("arriba.federation")
 
@@ -143,37 +143,13 @@ class Federation:
         }
         return actor
 
-    def stats_line(self, a: dict[str, Any]) -> list[str]:
-        """Die Kennzahlen einer Aktivität als kurze Textbausteine."""
-        sp = sport(a["sport"])
-        seconds = a["moving_s"] or a["duration_s"]
-        stats = [f"{sp.emoji} {sp.name}"]
-        if a.get("kind") == "workout":
-            totals = workout_summary(a.get("workout"))
-            if seconds:
-                stats.append(fmt.hours(seconds))
-            stats.append(f"{totals['sets']} Sätze")
-            if totals["reps"]:
-                stats.append(f"{totals['reps']} Wdh.")
-            return stats
-        stats.append(fmt.distance(a["distance_m"]))
-        if seconds:
-            stats += [fmt.duration(seconds), fmt.speed(a["sport"], a["distance_m"], seconds)]
-        if a["elevation_gain_m"]:
-            stats.append(f"↑ {fmt.meters(a['elevation_gain_m'])} m")
-        if a["sport"] == "enduro" and a.get("elevation_loss_m"):
-            stats.append(f"↓ {fmt.meters(a['elevation_loss_m'])} m")
-        if a.get("extra", {}).get("avg_hr"):
-            stats.append(f"♥ {a['extra']['avg_hr']} bpm")
-        return stats
-
     def note(self, a: dict[str, Any]) -> dict[str, Any]:
         url = self.activity_url(a["id"])
         sp = sport(a["sport"])
         tag_url = f"{self.s.base_url}/?sport={a['sport']}"
 
         content = f"<p><strong>{html.escape(a['title'])}</strong></p>"
-        content += f"<p>{html.escape(' · '.join(self.stats_line(a)))}</p>"
+        content += f"<p>{html.escape(' · '.join(stats_line(a)))}</p>"
         if a.get("kind") == "workout" and a.get("workout"):
             lines = [html.escape(format_exercise(e)) for e in a["workout"]]
             content += "<p>" + "<br>".join(lines) + "</p>"
