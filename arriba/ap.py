@@ -16,7 +16,7 @@ from .httpsig import SignatureError, parse_signature_header, verify_request
 if TYPE_CHECKING:
     from .app import Context
 
-log = logging.getLogger("wegpunkt.ap")
+log = logging.getLogger("arriba.ap")
 MAX_INBOX_BYTES = 1024 * 1024
 OUTBOX_PAGE_SIZE = 20
 
@@ -62,7 +62,7 @@ def register(app: FastAPI, ctx: "Context") -> None:
     def nodeinfo():
         return {
             "version": "2.0",
-            "software": {"name": "wegpunkt", "version": __version__},
+            "software": {"name": "arriba", "version": __version__},
             "protocols": ["activitypub"],
             "services": {"inbound": [], "outbound": []},
             "openRegistrations": False,

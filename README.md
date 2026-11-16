@@ -1,7 +1,8 @@
-# Wegpunkt
+# Arriba
 
 Ein kleiner, selbst gehosteter Aktivitäten-Tracker im Stil von Strava, der mit dem
-Fediverse spricht. Eine Instanz gehört genau einer Person.
+Fediverse spricht. Eine Instanz gehört genau einer Person. „Arriba“ ist Spanisch für
+„hoch“ oder „auf geht’s“. (Das Projekt hieß früher Wegpunkt.)
 
 ## Was es kann
 
@@ -44,7 +45,7 @@ Du brauchst Python 3.11 oder neuer.
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -e ".[dev]"
-WEGPUNKT_PASSWORD=test .venv/bin/python -m wegpunkt
+ARRIBA_PASSWORD=test .venv/bin/python -m arriba
 ```
 
 Dann <http://localhost:8000> öffnen, mit dem Passwort anmelden und eine GPX- oder FIT-Datei
@@ -54,7 +55,7 @@ Tests: `.venv/bin/python -m pytest`
 
 Föderation funktioniert lokal nicht, weil andere Server deine Instanz erreichen müssen. Zum
 Ausprobieren reicht ein Tunnel, z. B. `cloudflared tunnel --url http://localhost:8000`. Die
-angezeigte Domain trägst du dann als `WEGPUNKT_DOMAIN` ein.
+angezeigte Domain trägst du dann als `ARRIBA_DOMAIN` ein.
 
 ## Auf einem Server betreiben
 
@@ -67,8 +68,8 @@ Du brauchst eine eigene (Sub-)Domain mit HTTPS, z. B. `sport.example.de`.
 
    ```ini
    [Service]
-   WorkingDirectory=/opt/wegpunkt
-   ExecStart=/opt/wegpunkt/.venv/bin/python -m wegpunkt
+   WorkingDirectory=/opt/arriba
+   ExecStart=/opt/arriba/.venv/bin/python -m arriba
    Restart=always
    ```
 
@@ -90,25 +91,29 @@ deines Accounts. **Diesen Ordner sichern.** Geht der Schlüssel verloren, könne
 Beiträge nicht mehr zuordnen.
 
 Nach einem Update werden ältere Datenbanken beim Start automatisch umgestellt und vorhandene
-Aufzeichnungen neu ausgewertet.
+Aufzeichnungen neu ausgewertet. Vorschaubilder ohne Kartenhintergrund werden im Hintergrund nach und
+nach neu gezeichnet.
+
+Einstellungen mit dem früheren Präfix `WEGPUNKT_` und eine vorhandene `wegpunkt.db` werden weiter
+erkannt und übernommen.
 
 ## Aufbau
 
 | Datei | Inhalt |
 | --- | --- |
-| `wegpunkt/app.py` | Baut die Anwendung zusammen: Einstellungen, Sicherheits-Header, Fehlerseiten |
-| `wegpunkt/web.py` | Seiten: Übersicht, Aktivität, Eintragen, Bearbeiten, Profil |
-| `wegpunkt/ap.py` | ActivityPub-Endpunkte: WebFinger, Actor, Outbox, Inbox, NodeInfo |
-| `wegpunkt/federation.py` | ActivityPub-Objekte, fremde Accounts laden, Warteschlange, Inbox verarbeiten |
-| `wegpunkt/httpsig.py` | HTTP-Signaturen erstellen und prüfen |
-| `wegpunkt/tracks.py` | GPX und FIT einlesen und auswerten, Privatzone |
-| `wegpunkt/workouts.py` | Calisthenics-Workouts: Sätze einlesen, Summen |
-| `wegpunkt/stats.py` | Woche, Diagramm, Jahreskalender, Bestwerte, Fortschritt je Übung |
-| `wegpunkt/render.py` | Routenbild, Vorschaupfade, Profilbild |
-| `wegpunkt/sports.py`, `wegpunkt/fmt.py` | Sportarten und Zahlenformate |
-| `wegpunkt/db.py` | SQLite-Datenbank samt Umstellung älterer Stände |
-| `wegpunkt/config.py` | Einstellungen aus Umgebung oder `.env` |
-| `wegpunkt/static/` | Stylesheet, Skripte, Schriften, Leaflet |
+| `arriba/app.py` | Baut die Anwendung zusammen: Einstellungen, Sicherheits-Header, Fehlerseiten |
+| `arriba/web.py` | Seiten: Übersicht, Aktivität, Eintragen, Bearbeiten, Profil |
+| `arriba/ap.py` | ActivityPub-Endpunkte: WebFinger, Actor, Outbox, Inbox, NodeInfo |
+| `arriba/federation.py` | ActivityPub-Objekte, fremde Accounts laden, Warteschlange, Inbox verarbeiten |
+| `arriba/httpsig.py` | HTTP-Signaturen erstellen und prüfen |
+| `arriba/tracks.py` | GPX und FIT einlesen und auswerten, Privatzone |
+| `arriba/workouts.py` | Calisthenics-Workouts: Sätze einlesen, Summen |
+| `arriba/stats.py` | Woche, Diagramm, Jahreskalender, Bestwerte, Fortschritt je Übung |
+| `arriba/render.py` | Routenbild, Vorschaupfade, Profilbild |
+| `arriba/sports.py`, `arriba/fmt.py` | Sportarten und Zahlenformate |
+| `arriba/db.py` | SQLite-Datenbank samt Umstellung älterer Stände |
+| `arriba/config.py` | Einstellungen aus Umgebung oder `.env` |
+| `arriba/static/` | Stylesheet, Skripte, Schriften, Leaflet |
 
 ## Ideen für später
 
@@ -118,5 +123,5 @@ Aufzeichnungen neu ausgewertet.
   Fitness-Instanzen Aktivitäten maschinenlesbar übernehmen können
 - Segmente und Vergleich wiederholter Strecken
 
-Leaflet liegt in `wegpunkt/static/leaflet/` (BSD-2-Clause), die Schriften Inter und Barlow
-Condensed in `wegpunkt/static/fonts/` (SIL Open Font License). Die Lizenzen liegen jeweils daneben.
+Leaflet liegt in `arriba/static/leaflet/` (BSD-2-Clause), die Schriften Inter und Barlow
+Condensed in `arriba/static/fonts/` (SIL Open Font License). Die Lizenzen liegen jeweils daneben.

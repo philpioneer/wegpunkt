@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{{ profile.display_name }}{% endblock %} · Wegpunkt</title>
+  <title>{% block title %}{{ profile.display_name }}{% endblock %} · Arriba</title>
   <meta name="description" content="{% block description %}{{ profile.summary or 'Aktivitäten von ' ~ profile.display_name }}{% endblock %}">
   <meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0d0f12" media="(prefers-color-scheme: dark)">
@@ -19,7 +19,7 @@
   <a class="skip-link" href="#inhalt">Zum Inhalt springen</a>
   <header class="site-header">
     <div class="wrap header-inner">
-      <a class="brand" href="/">{{ logo(28) }}<span>Wegpunkt</span></a>
+      <a class="brand" href="/">{{ logo(28) }}<span>Arriba</span></a>
       <nav class="header-nav" aria-label="Hauptmenü">
         {% if is_owner %}
           <a class="btn btn-primary btn-sm" href="/upload" aria-label="Eintragen">{{ icon("plus", 18) }}<span>Eintragen</span></a>
@@ -42,7 +42,7 @@
   <main class="wrap" id="inhalt">{% block content %}{% endblock %}</main>
 
   <footer class="site-footer wrap">
-    <span>{{ logo(16) }} Wegpunkt</span>
+    <span>{{ logo(16) }} Arriba</span>
     <button class="copy-inline" data-copy="{{ settings.handle }}" title="Handle kopieren">
       Folgen im Fediverse: <code>{{ settings.handle }}</code>
       <span class="copy-ico">{{ icon("copy", 14) }}</span><span class="copied-ico">{{ icon("check", 14) }}</span>

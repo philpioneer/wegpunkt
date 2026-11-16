@@ -7,6 +7,8 @@ import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
+OLD_PREFIX = "WEGPUNKT_"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -58,6 +60,19 @@ def read_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def merged_env(env_file: Path | None = None) -> dict[str, str]:
+    """Umgebung plus .env-Datei. Echte Umgebungsvariablen haben Vorrang.
+
+    Einstellungen mit dem früheren Präfix WEGPUNKT_ gelten weiter, solange es
+    keine gleichnamige mit ARRIBA_ gibt.
+    """
+    env = {**read_env_file(env_file or Path(".env")), **os.environ}
+    for key, value in list(env.items()):
+        if key.startswith(OLD_PREFIX):
+            env.setdefault("ARRIBA_" + key[len(OLD_PREFIX):], value)
+    return env
+
+
 def _persistent_secret(data_dir: Path) -> str:
     path = data_dir / "secret_key"
     if path.exists():
@@ -69,30 +84,29 @@ def _persistent_secret(data_dir: Path) -> str:
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
-    # Echte Umgebungsvariablen haben Vorrang vor der .env-Datei.
-    env = {**read_env_file(env_file or Path(".env")), **os.environ}
-    domain = env.get("WEGPUNKT_DOMAIN", "localhost:8000")
-    data_dir = Path(env.get("WEGPUNKT_DATA_DIR", "data")).resolve()
+    env = merged_env(env_file)
+    domain = env.get("ARRIBA_DOMAIN", "localhost:8000")
+    data_dir = Path(env.get("ARRIBA_DATA_DIR", "data")).resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
 
     local = domain.startswith(("localhost", "127.0.0.1"))
-    https = env.get("WEGPUNKT_HTTPS", "0" if local else "1").lower() not in ("0", "false", "no")
+    https = env.get("ARRIBA_HTTPS", "0" if local else "1").lower() not in ("0", "false", "no")
 
-    password = env.get("WEGPUNKT_PASSWORD", "")
+    password = env.get("ARRIBA_PASSWORD", "")
     if not password:
         password = secrets.token_urlsafe(12)
-        print(f"WEGPUNKT_PASSWORD ist nicht gesetzt. Passwort für diesen Start: {password}")
+        print(f"ARRIBA_PASSWORD ist nicht gesetzt. Passwort für diesen Start: {password}")
 
     return Settings(
         domain=domain,
-        username=env.get("WEGPUNKT_USERNAME", "me"),
-        display_name=env.get("WEGPUNKT_DISPLAY_NAME", "Wegpunkt"),
+        username=env.get("ARRIBA_USERNAME", "me"),
+        display_name=env.get("ARRIBA_DISPLAY_NAME", "Arriba"),
         password=password,
-        secret_key=env.get("WEGPUNKT_SECRET_KEY") or _persistent_secret(data_dir),
+        secret_key=env.get("ARRIBA_SECRET_KEY") or _persistent_secret(data_dir),
         data_dir=data_dir,
         https=https,
-        summary=env.get("WEGPUNKT_SUMMARY", ""),
-        timezone=env.get("WEGPUNKT_TIMEZONE", "Europe/Berlin"),
-        privacy_radius_m=float(env.get("WEGPUNKT_PRIVACY_RADIUS_M", "200")),
-        map_previews=env.get("WEGPUNKT_MAP_PREVIEWS", "1").lower() not in ("0", "false", "no"),
+        summary=env.get("ARRIBA_SUMMARY", ""),
+        timezone=env.get("ARRIBA_TIMEZONE", "Europe/Berlin"),
+        privacy_radius_m=float(env.get("ARRIBA_PRIVACY_RADIUS_M", "200")),
+        map_previews=env.get("ARRIBA_MAP_PREVIEWS", "1").lower() not in ("0", "false", "no"),
     )

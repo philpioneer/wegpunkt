@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 
 Color = tuple[int, int, int]
-LOGO_COLORS: list[Color] = [(227, 154, 82), (63, 174, 111), (75, 124, 240), (176, 100, 227)]
+LOGO_COLORS: list[Color] = [(230, 160, 92), (76, 196, 133), (111, 155, 255), (199, 136, 243)]
 
 
 def _project(lat: float, lon: float) -> tuple[float, float]:
@@ -195,35 +195,38 @@ def route_map_png(
 
 
 def default_avatar(path: Path, size: int = 400) -> None:
-    """Das Wegpunkt-Zeichen als Profilbild, solange kein eigenes hochgeladen ist."""
+    """Das Arriba-Zeichen als Profilbild, solange kein eigenes hochgeladen ist."""
     from PIL import Image, ImageDraw
 
     scale = 3
     n = size * scale
-    # Der Verlauf ist weich, also klein berechnen und hochskalieren.
+    u = n / 120  # das Zeichen ist auf einem Raster von 120 Einheiten entworfen
+    # Farbverlauf von links unten nach rechts oben: klein berechnen, hochskalieren
     small = 48
     gradient = Image.new("RGB", (small, small))
     px = gradient.load()
-    stops = LOGO_COLORS
     for y in range(small):
         for x in range(small):
-            t = (x + y) / (2 * small) * (len(stops) - 1)
-            i = min(int(t), len(stops) - 2)
-            f = t - i
-            px[x, y] = tuple(round(stops[i][c] + (stops[i + 1][c] - stops[i][c]) * f) for c in range(3))
+            t = min(max((x + (small - 1 - y)) / (2 * (small - 1)), 0.0), 1.0)
+            pos = [0.0, 0.35, 0.7, 1.0]
+            i = max(k for k in range(3) if t >= pos[k])
+            f = (t - pos[i]) / (pos[i + 1] - pos[i])
+            px[x, y] = tuple(round(LOGO_COLORS[i][c] + (LOGO_COLORS[i + 1][c] - LOGO_COLORS[i][c]) * f)
+                             for c in range(3))
     gradient = gradient.resize((n, n), Image.BICUBIC)
-    c = n / 2
+
+    def stroke(target: ImageDraw.ImageDraw, points: list[tuple[float, float]], fill) -> None:
+        width = round(12 * u)
+        pts = [(x * u, y * u) for x, y in points]
+        target.line(pts, fill=fill, width=width)
+        for x, y in pts:
+            target.ellipse((x - width / 2, y - width / 2, x + width / 2, y + width / 2), fill=fill)
+
     img = Image.new("RGB", (n, n), (21, 23, 27))
     mask = Image.new("L", (n, n), 0)
-    outer = n * 0.36
-    ImageDraw.Draw(mask).polygon([(c, c - outer), (c + outer, c), (c, c + outer), (c - outer, c)], fill=255)
+    stroke(ImageDraw.Draw(mask), [(24, 86), (46, 62), (60, 74), (92, 38)], 255)
     img.paste(gradient, (0, 0), mask)
-    draw = ImageDraw.Draw(img)
-    inner = n * 0.17
-    draw.line([(c, c - inner), (c + inner, c), (c, c + inner), (c - inner, c), (c, c - inner)],
-              fill="white", width=round(n * 0.028), joint="curve")
-    dot = n * 0.055
-    draw.ellipse((c - dot, c - dot, c + dot, c + dot), fill="white")
+    stroke(ImageDraw.Draw(img), [(72, 34), (96, 34), (96, 58)], LOGO_COLORS[3])
     img.resize((size, size), Image.LANCZOS).save(path, "PNG", optimize=True)
 
 

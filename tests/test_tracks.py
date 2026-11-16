@@ -2,8 +2,8 @@ import gzip
 
 import pytest
 
-from wegpunkt import tracks
-from wegpunkt.sports import guess_sport
+from arriba import tracks
+from arriba.sports import guess_sport
 
 from .conftest import GPX, fit_bytes
 
@@ -80,7 +80,7 @@ def test_route_image_with_map_background(tmp_path):
 
     from PIL import Image
 
-    from wegpunkt import render
+    from arriba import render
 
     class FakeTiles:
         calls = 0
@@ -102,7 +102,7 @@ def test_route_image_with_map_background(tmp_path):
 
 
 def test_route_image_falls_back_without_map_server(tmp_path):
-    from wegpunkt.app import create_app
+    from arriba.app import create_app
     from .conftest import make_settings
 
     ctx = create_app(make_settings(tmp_path, map_previews=True)).state.ctx
@@ -118,3 +118,31 @@ def test_route_image_falls_back_without_map_server(tmp_path):
     a = {"id": "abcd", "sport": "run", "track": tracks.visible_points(tracks.parse(GPX), 200)}
     ctx.draw_route(a)
     assert a["has_image"] and (ctx.media_dir / "abcd.png").stat().st_size > 1000
+
+
+def test_old_previews_get_a_map_later(env):
+    import io
+
+    from PIL import Image
+
+    from arriba.app import PREVIEW_WITH_MAP
+
+    env.login()
+    activity_id = env.upload()
+    ctx = env.ctx
+    assert ctx.db.get_activity(activity_id)["extra"]["preview"] == "plain"
+    assert ctx.refresh_previews() == 0                       # ohne Kartenquelle passiert nichts
+
+    class Tiles:
+        def get(self, z, x, y):
+            buf = io.BytesIO()
+            Image.new("RGB", (256, 256), (210, 225, 210)).save(buf, "PNG")
+            return buf.getvalue()
+
+        def close(self):
+            pass
+
+    ctx.tiles = Tiles()
+    assert ctx.refresh_previews(pause_s=0) == 1 and ctx.refresh_previews(pause_s=0) == 0
+    a = ctx.db.get_activity(activity_id)
+    assert a["extra"]["preview"] == PREVIEW_WITH_MAP and a["extra"]["version"] == tracks.ANALYSIS_VERSION

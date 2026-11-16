@@ -1,10 +1,10 @@
 import sqlite3
 
-from wegpunkt import stats, tracks
-from wegpunkt.app import create_app
-from wegpunkt.config import load_settings, read_env_file
-from wegpunkt.db import Database
-from wegpunkt.workouts import WorkoutError, build_workout, parse_sets, summary
+from arriba import stats, tracks
+from arriba.app import create_app
+from arriba.config import load_settings, read_env_file
+from arriba.db import Database
+from arriba.workouts import WorkoutError, build_workout, parse_sets, summary
 
 import pytest
 from fastapi.testclient import TestClient
@@ -138,7 +138,7 @@ def test_parse_sets_and_workouts():
 
 def test_old_database_is_migrated_and_reanalyzed(tmp_path):
     """Eine Datenbank der ersten Version wird beim Start umgestellt und neu ausgewertet."""
-    conn = sqlite3.connect(tmp_path / "wegpunkt.db")
+    conn = sqlite3.connect(tmp_path / "wegpunkt.db")   # so hieß die Datei vor der Umbenennung
     conn.executescript("""CREATE TABLE activities (id TEXT PRIMARY KEY, title TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '', sport TEXT NOT NULL, started_at TEXT,
         distance_m REAL NOT NULL, duration_s REAL, moving_s REAL, elevation_gain_m REAL,
@@ -153,6 +153,7 @@ def test_old_database_is_migrated_and_reanalyzed(tmp_path):
     app = create_app(make_settings(tmp_path))
     db = app.state.ctx.db
     a, b = db.get_activity("aaaa"), db.get_activity("bbbb")
+    assert (tmp_path / "arriba.db").exists() and not (tmp_path / "wegpunkt.db").exists()
     assert a["sport"] == "gravel" and b["sport"] == "run" and a["visibility"] == "public"
     assert a["extra"]["version"] == tracks.ANALYSIS_VERSION and 3800 < a["distance_m"] < 4000
     assert len(a["track"][0]) == 5 and a["has_image"] and b["extra"] == {}
@@ -162,15 +163,37 @@ def test_old_database_is_migrated_and_reanalyzed(tmp_path):
 
 def test_env_file(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
-    env_file.write_text('# Kommentar\nWEGPUNKT_DOMAIN=sport.example\nexport WEGPUNKT_USERNAME="phil"\n'
-                        "WEGPUNKT_PASSWORD='ge=heim'\nWEGPUNKT_DATA_DIR=" + str(tmp_path / "d") + "\n")
-    assert read_env_file(env_file)["WEGPUNKT_PASSWORD"] == "ge=heim"
-    for key in ("WEGPUNKT_DOMAIN", "WEGPUNKT_USERNAME", "WEGPUNKT_PASSWORD", "WEGPUNKT_DATA_DIR"):
+    env_file.write_text('# Kommentar\nARRIBA_DOMAIN=sport.example\nexport ARRIBA_USERNAME="phil"\n'
+                        "ARRIBA_PASSWORD='ge=heim'\nARRIBA_DATA_DIR=" + str(tmp_path / "d") + "\n")
+    assert read_env_file(env_file)["ARRIBA_PASSWORD"] == "ge=heim"
+    for key in ("ARRIBA_DOMAIN", "ARRIBA_USERNAME", "ARRIBA_PASSWORD", "ARRIBA_DATA_DIR"):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("WEGPUNKT_USERNAME", "vorrang")
+    monkeypatch.setenv("ARRIBA_USERNAME", "vorrang")
     s = load_settings(env_file)
     assert (s.domain, s.username, s.password, s.https) == ("sport.example", "vorrang", "ge=heim", True)
     assert s.handle == "@vorrang@sport.example"
+
+
+def test_settings_with_the_old_prefix_still_work(tmp_path, monkeypatch):
+    for key in ("ARRIBA_DOMAIN", "ARRIBA_USERNAME", "ARRIBA_PASSWORD"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("ARRIBA_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("WEGPUNKT_DOMAIN", "alt.example")
+    monkeypatch.setenv("WEGPUNKT_PASSWORD", "alt")
+    monkeypatch.setenv("WEGPUNKT_USERNAME", "alt")
+    monkeypatch.setenv("ARRIBA_USERNAME", "neu")
+    s = load_settings(tmp_path / "gibtsnicht.env")
+    assert (s.domain, s.password, s.username) == ("alt.example", "alt", "neu")
+
+
+def test_default_avatar_follows_the_logo_but_keeps_custom_pictures(tmp_path):
+    ctx = create_app(make_settings(tmp_path)).state.ctx
+    ctx.avatar_path.write_bytes(b"altes Standardbild")
+    ctx.db.set_profile({"avatar_design": "alt"})
+    assert create_app(make_settings(tmp_path)).state.ctx.avatar_path.read_bytes()[:4] == b"\x89PNG"
+    ctx.avatar_path.write_bytes(b"eigenes Bild")
+    ctx.db.set_profile({"avatar_design": "alt", "custom_avatar": "1"})
+    assert create_app(make_settings(tmp_path)).state.ctx.avatar_path.read_bytes() == b"eigenes Bild"
 
 
 def _activity(i, sport, started, **extra):

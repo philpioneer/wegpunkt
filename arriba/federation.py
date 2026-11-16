@@ -24,7 +24,7 @@ from .sports import sport
 from .workouts import format_exercise
 from .workouts import summary as workout_summary
 
-log = logging.getLogger("wegpunkt.federation")
+log = logging.getLogger("arriba.federation")
 
 AS_CONTEXT = "https://www.w3.org/ns/activitystreams"
 SECURITY_CONTEXT = "https://w3id.org/security/v1"
@@ -98,7 +98,7 @@ class Federation:
         self.db = db
         self.key = key
         self.profile = profile
-        self.user_agent = f"Wegpunkt/{__version__} (+{settings.base_url})"
+        self.user_agent = f"Arriba/{__version__} (+{settings.base_url})"
         self._lock = asyncio.Lock()
 
     # Eigene Objekte ---------------------------------------------------------

@@ -1,4 +1,4 @@
-// Wegpunkt: Karte und Verlaufsdiagramm einer GPS-Aktivität
+// Arriba: Karte und Verlaufsdiagramm einer GPS-Aktivität
 (() => {
   "use strict";
   const dataEl = document.getElementById("track-data");

@@ -4,9 +4,9 @@ import re
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from wegpunkt.app import create_app
-from wegpunkt.federation import RETRY_DELAYS_S, FetchError, html_to_text
-from wegpunkt.httpsig import SignatureError, public_key_pem, sign_request, verify_request
+from arriba.app import create_app
+from arriba.federation import RETRY_DELAYS_S, FetchError, html_to_text
+from arriba.httpsig import SignatureError, public_key_pem, sign_request, verify_request
 
 from .conftest import AP, ME, REMOTE, fit_bytes, make_settings
 

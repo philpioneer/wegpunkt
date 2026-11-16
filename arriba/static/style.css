@@ -1,4 +1,4 @@
-/* Wegpunkt · Stylesheet */
+/* Arriba · Stylesheet */
 
 @font-face {
   font-family: "Inter";
@@ -168,8 +168,8 @@ code { font-family: var(--mono); font-size: .86em; }
   text-decoration: none;
   font: 700 1.35rem/1 var(--display); letter-spacing: .06em; text-transform: uppercase;
 }
-.brand .logo { transition: transform .5s var(--ease); }
-.brand:hover .logo { transform: rotate(90deg); }
+.brand .logo { border-radius: 24%; transition: transform .35s var(--ease); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent); }
+.brand:hover .logo { transform: translate(1px, -2px) scale(1.06); }
 .header-nav { display: flex; align-items: center; gap: 8px; }
 .header-nav form { margin: 0; }
 

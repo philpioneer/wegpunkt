@@ -5,9 +5,9 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
-from wegpunkt.app import create_app
-from wegpunkt.config import Settings
-from wegpunkt.httpsig import public_key_pem, sign_request
+from arriba.app import create_app
+from arriba.config import Settings
+from arriba.httpsig import public_key_pem, sign_request
 
 GPX = (Path(__file__).parent / "data" / "run.gpx").read_bytes()
 AP = "application/activity+json"

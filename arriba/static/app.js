@@ -1,4 +1,4 @@
-// Wegpunkt: allgemeine Bedienung (Kopieren, Farbschema, Formulare)
+// Arriba: allgemeine Bedienung (Kopieren, Farbschema, Formulare)
 (() => {
   "use strict";
 

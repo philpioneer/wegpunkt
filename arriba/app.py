@@ -27,11 +27,13 @@ from .db import Database, now_iso
 from .federation import Federation
 from .httpsig import load_or_create_key
 
-log = logging.getLogger("wegpunkt")
+log = logging.getLogger("arriba")
 HERE = Path(__file__).parent
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_S = 15 * 60
 SESSION_MAX_AGE_S = 30 * 24 * 3600
+PREVIEW_WITH_MAP = "map-1"
+AVATAR_DESIGN = "arriba-1"  # ändert sich, wenn das Standard-Profilbild neu gestaltet wird
 WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 MONTHS = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sep.", "Okt.", "Nov.", "Dez."]
 ERROR_TITLES = {403: "Kein Zugriff", 404: "Nicht gefunden", 413: "Zu groß", 500: "Etwas ist schiefgegangen"}
@@ -70,14 +72,23 @@ class Context:
         for d in (self.media_dir, self.original_dir):
             d.mkdir(parents=True, exist_ok=True)
         self.avatar_path = self.media_dir / "avatar.png"
-        if not self.avatar_path.exists():
-            render.default_avatar(self.avatar_path)
 
         self.tiles = render.TileSource(
-            s.data_dir / "cache" / "tiles", f"Wegpunkt/{__version__} (+{s.base_url})"
+            s.data_dir / "cache" / "tiles", f"Arriba/{__version__} (+{s.base_url})"
         ) if s.map_previews else None
 
-        self.db = Database(s.data_dir / "wegpunkt.db")
+        db_path = s.data_dir / "arriba.db"
+        if not db_path.exists():  # Datenbank aus der Zeit vor der Umbenennung übernehmen
+            for suffix in ("", "-wal", "-shm"):
+                old = s.data_dir / f"wegpunkt.db{suffix}"
+                if old.exists():
+                    old.rename(s.data_dir / f"arriba.db{suffix}")
+        self.db = Database(db_path)
+        stored = self.db.get_profile()
+        outdated = stored.get("custom_avatar") != "1" and stored.get("avatar_design") != AVATAR_DESIGN
+        if outdated or not self.avatar_path.exists():
+            render.default_avatar(self.avatar_path)
+            self.db.set_profile({"avatar_design": AVATAR_DESIGN})
         self.fed = Federation(s, self.db, load_or_create_key(s.data_dir / "private_key.pem"), self.profile)
         self.tz = ZoneInfo(s.timezone)
         self.throttle = LoginThrottle()
@@ -188,15 +199,39 @@ class Context:
         """Vorschaubild mit Karte; ohne Netz oder bei Fehlern nur die Linie."""
         path = self.media_dir / f"{a['id']}.png"
         color = sports.sport(a["sport"]).color
+        extra = a.setdefault("extra", {})
         if self.tiles is not None:
             try:
                 a["has_image"] = render.route_map_png(a["track"], path, color, self.tiles)
+                extra["preview"] = PREVIEW_WITH_MAP
                 return
             except Exception as exc:  # Kartenserver nicht erreichbar o. Ä.
                 log.warning("Kartenbild für %s nicht möglich (%s), zeichne ohne Karte", a["id"], exc)
             finally:
                 self.tiles.close()
         a["has_image"] = render.route_png(a["track"], path, color)
+        extra["preview"] = "plain"
+
+    def refresh_previews(self, pause_s: float = 1.0) -> int:
+        """Zeichnet ältere Vorschaubilder mit Kartenhintergrund neu, eines nach dem anderen."""
+        if self.tiles is None:
+            return 0
+        count = 0
+        for activity_id in self.db.gps_ids():
+            a = self.db.get_activity(activity_id)
+            if not a or not a["track"] or a["extra"].get("preview") == PREVIEW_WITH_MAP:
+                continue
+            self.draw_route(a)
+            if a["extra"]["preview"] != PREVIEW_WITH_MAP:
+                break  # Kartenserver nicht erreichbar: beim nächsten Start weiter
+            fresh = self.db.get_activity(activity_id)  # zwischenzeitliche Änderungen behalten
+            if fresh:
+                fresh["has_image"] = a["has_image"]
+                fresh["extra"] = {**fresh["extra"], "preview": PREVIEW_WITH_MAP}
+                self.db.update_activity(fresh)
+                count += 1
+            time.sleep(pause_s)  # den Kartenserver schonen
+        return count
 
     def reprocess_outdated(self) -> int:
         """Wertet ältere Aufzeichnungen mit der aktuellen Auswertung neu aus."""
@@ -236,12 +271,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         worker = asyncio.create_task(ctx.fed.run_queue_forever())
+        previews = asyncio.create_task(asyncio.to_thread(ctx.refresh_previews))
         try:
             yield
         finally:
             worker.cancel()
+            previews.cancel()
 
-    app = FastAPI(title="Wegpunkt", version=__version__, docs_url=None, redoc_url=None,
+    app = FastAPI(title="Arriba", version=__version__, docs_url=None, redoc_url=None,
                   openapi_url=None, lifespan=lifespan)
     app.state.ctx = ctx
 
