@@ -146,3 +146,11 @@ def test_old_previews_get_a_map_later(env):
     assert ctx.refresh_previews(pause_s=0) == 1 and ctx.refresh_previews(pause_s=0) == 0
     a = ctx.db.get_activity(activity_id)
     assert a["extra"]["preview"] == PREVIEW_WITH_MAP and a["extra"]["version"] == tracks.ANALYSIS_VERSION
+
+
+def test_missing_fit_library_gives_a_clear_message(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "fitdecode", None)   # so verhält sich ein fehlendes Paket
+    with pytest.raises(tracks.TrackError, match="pip install"):
+        tracks.parse(fit_bytes())

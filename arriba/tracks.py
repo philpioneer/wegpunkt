@@ -121,7 +121,13 @@ def _parse_gpx(data: bytes) -> Track:
 
 
 def _parse_fit(data: bytes) -> Track:
-    import fitdecode
+    try:
+        import fitdecode
+    except ImportError as exc:
+        raise TrackError(
+            "Für FIT-Dateien fehlt eine Bibliothek. Bitte einmal "
+            "„.venv/bin/python -m pip install -e .“ ausführen und Arriba neu starten."
+        ) from exc
 
     semicircle = 180.0 / 2**31
     samples: list[Sample] = []
