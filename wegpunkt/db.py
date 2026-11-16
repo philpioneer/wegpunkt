@@ -1,4 +1,4 @@
-"""SQLite-Speicher für Aktivitäten, Follower und Reaktionen aus dem Fediverse."""
+"""SQLite-Speicher: Aktivitäten, Follower, Reaktionen, Zustell-Warteschlange, Profil."""
 
 from __future__ import annotations
 
@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS activities (
     workout_json     TEXT,
     track_json       TEXT NOT NULL,
     has_image        INTEGER NOT NULL DEFAULT 0,
-    created_at       TEXT NOT NULL
+    created_at       TEXT NOT NULL,
+    visibility       TEXT NOT NULL DEFAULT 'public',
+    extra_json       TEXT,
+    updated_at       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS followers (
@@ -54,7 +57,40 @@ CREATE TABLE IF NOT EXISTS remote_actors (
     data       TEXT NOT NULL,
     fetched_at REAL NOT NULL
 );
+
+-- Ausgehende Nachrichten, die noch zugestellt werden müssen
+CREATE TABLE IF NOT EXISTS deliveries (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    inbox      TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    next_at    REAL NOT NULL,
+    last_error TEXT,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS deliveries_due ON deliveries(next_at);
+
+-- Profilangaben, die in der Oberfläche geändert wurden
+CREATE TABLE IF NOT EXISTS profile (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
+
+# Spalten, die ältere Datenbanken noch nicht haben
+MIGRATIONS = (
+    ("elevation_loss_m", "REAL"),
+    ("kind", "TEXT NOT NULL DEFAULT 'gps'"),
+    ("workout_json", "TEXT"),
+    ("visibility", "TEXT NOT NULL DEFAULT 'public'"),
+    ("extra_json", "TEXT"),
+    ("updated_at", "TEXT"),
+)
+
+LIGHT_COLUMNS = (
+    "id, title, sport, kind, visibility, started_at, created_at, distance_m, duration_s,"
+    " moving_s, elevation_gain_m, elevation_loss_m, workout_json, extra_json"
+)
 
 
 def now_iso() -> str:
@@ -65,18 +101,30 @@ class Database:
     def __init__(self, path: Path):
         self.path = path
         with self._conn() as conn:
+            self._pragmas(conn)
             conn.executescript(SCHEMA)
             self._migrate(conn)
+
+    @contextmanager
+    def _conn(self) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(self.path, timeout=15)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _pragmas(conn: sqlite3.Connection) -> None:
+        conn.execute("PRAGMA journal_mode = WAL")
 
     @staticmethod
     def _migrate(conn: sqlite3.Connection) -> None:
         """Ältere Datenbanken auf den aktuellen Stand bringen."""
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(activities)")}
-        for name, definition in (
-            ("elevation_loss_m", "REAL"),
-            ("kind", "TEXT NOT NULL DEFAULT 'gps'"),
-            ("workout_json", "TEXT"),
-        ):
+        for name, definition in MIGRATIONS:
             if name not in columns:
                 conn.execute(f"ALTER TABLE activities ADD COLUMN {name} {definition}")
         # Frühere Sportarten auf die aktuellen abbilden
@@ -86,90 +134,112 @@ class Database:
             " AND sport NOT IN ('gravel', 'enduro', 'run')"
         )
 
-    @contextmanager
-    def _conn(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        try:
-            with conn:
-                yield conn
-        finally:
-            conn.close()
-
     # Aktivitäten -----------------------------------------------------------
+
+    @staticmethod
+    def _encode(a: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "description": "",
+            "started_at": None,
+            "duration_s": None,
+            "moving_s": None,
+            "elevation_gain_m": None,
+            "elevation_loss_m": None,
+            "kind": "gps",
+            "visibility": "public",
+            "updated_at": None,
+            **a,
+            "workout_json": json.dumps(a["workout"]) if a.get("workout") else None,
+            "extra_json": json.dumps(a["extra"]) if a.get("extra") else None,
+            "track_json": json.dumps(a.get("track") or []),
+            "has_image": int(bool(a.get("has_image"))),
+        }
+
+    @staticmethod
+    def _decode(row: sqlite3.Row | None, light: bool = False) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        a = dict(row)
+        if not light:
+            a["track"] = json.loads(a.pop("track_json"))
+            a["has_image"] = bool(a["has_image"])
+        workout = a.pop("workout_json")
+        a["workout"] = json.loads(workout) if workout else None
+        extra = a.pop("extra_json")
+        a["extra"] = json.loads(extra) if extra else {}
+        return a
 
     def add_activity(self, a: dict[str, Any]) -> None:
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO activities (id, title, description, sport, started_at,
                    distance_m, duration_s, moving_s, elevation_gain_m, elevation_loss_m,
-                   kind, workout_json, track_json, has_image, created_at)
+                   kind, workout_json, track_json, has_image, created_at, visibility,
+                   extra_json, updated_at)
                    VALUES (:id, :title, :description, :sport, :started_at, :distance_m,
                    :duration_s, :moving_s, :elevation_gain_m, :elevation_loss_m, :kind,
-                   :workout_json, :track_json, :has_image, :created_at)""",
-                {
-                    "elevation_loss_m": None,
-                    "kind": "gps",
-                    **a,
-                    "workout_json": json.dumps(a["workout"]) if a.get("workout") else None,
-                    "track_json": json.dumps(a.get("track") or []),
-                    "has_image": int(a.get("has_image", False)),
-                },
+                   :workout_json, :track_json, :has_image, :created_at, :visibility,
+                   :extra_json, :updated_at)""",
+                self._encode(a),
             )
 
-    @staticmethod
-    def _activity(row: sqlite3.Row | None) -> dict[str, Any] | None:
-        if row is None:
-            return None
-        a = dict(row)
-        a["track"] = json.loads(a.pop("track_json"))
-        workout = a.pop("workout_json")
-        a["workout"] = json.loads(workout) if workout else None
-        a["has_image"] = bool(a["has_image"])
-        return a
+    def update_activity(self, a: dict[str, Any]) -> None:
+        """Schreibt alle veränderlichen Felder einer vorhandenen Aktivität zurück."""
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE activities SET title = :title, description = :description,
+                   sport = :sport, started_at = :started_at, distance_m = :distance_m,
+                   duration_s = :duration_s, moving_s = :moving_s,
+                   elevation_gain_m = :elevation_gain_m, elevation_loss_m = :elevation_loss_m,
+                   workout_json = :workout_json, track_json = :track_json,
+                   has_image = :has_image, visibility = :visibility,
+                   extra_json = :extra_json, updated_at = :updated_at WHERE id = :id""",
+                self._encode(a),
+            )
 
     def get_activity(self, activity_id: str) -> dict[str, Any] | None:
         with self._conn() as conn:
             row = conn.execute("SELECT * FROM activities WHERE id = ?", (activity_id,)).fetchone()
-        return self._activity(row)
+        return self._decode(row)
 
     def list_activities(
-        self, limit: int = 50, offset: int = 0, sport: str | None = None
+        self, limit: int = 50, offset: int = 0, sport: str | None = None,
+        include_private: bool = False,
     ) -> list[dict[str, Any]]:
-        query = "SELECT * FROM activities"
-        params: list[Any] = []
-        if sport:
-            query += " WHERE sport = ?"
-            params.append(sport)
-        query += " ORDER BY COALESCE(started_at, created_at) DESC LIMIT ? OFFSET ?"
-        params += [limit, offset]
-        with self._conn() as conn:
-            rows = conn.execute(query, params).fetchall()
-        return [self._activity(r) for r in rows]  # type: ignore[misc]
-
-    def all_activities_light(self) -> list[dict[str, Any]]:
-        """Alle Aktivitäten ohne Track, für Statistiken."""
+        where, params = self._filter(sport, include_private)
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT id, sport, kind, started_at, created_at, distance_m, duration_s,"
-                " moving_s, elevation_gain_m, workout_json FROM activities"
+                f"SELECT * FROM activities{where}"
+                " ORDER BY COALESCE(started_at, created_at) DESC LIMIT ? OFFSET ?",
+                [*params, limit, offset],
             ).fetchall()
-        out = []
-        for r in rows:
-            a = dict(r)
-            w = a.pop("workout_json")
-            a["workout"] = json.loads(w) if w else None
-            out.append(a)
-        return out
+        return [self._decode(r) for r in rows]  # type: ignore[misc]
 
-    def activity_totals(self) -> dict[str, float]:
+    def count_activities(self, sport: str | None = None, include_private: bool = False) -> int:
+        where, params = self._filter(sport, include_private)
         with self._conn() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) AS count, COALESCE(SUM(distance_m), 0) AS distance_m,"
-                " COALESCE(SUM(elevation_gain_m), 0) AS elevation_gain_m FROM activities"
-            ).fetchone()
-        return dict(row)
+            return conn.execute(f"SELECT COUNT(*) FROM activities{where}", params).fetchone()[0]
+
+    @staticmethod
+    def _filter(sport: str | None, include_private: bool) -> tuple[str, list[Any]]:
+        clauses, params = [], []
+        if sport:
+            clauses.append("sport = ?")
+            params.append(sport)
+        if not include_private:
+            clauses.append("visibility = 'public'")
+        return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
+
+    def all_light(self, include_private: bool = False) -> list[dict[str, Any]]:
+        """Alle Aktivitäten ohne Track, für Statistiken."""
+        where, params = self._filter(None, include_private)
+        with self._conn() as conn:
+            rows = conn.execute(f"SELECT {LIGHT_COLUMNS} FROM activities{where}", params).fetchall()
+        return [self._decode(r, light=True) for r in rows]  # type: ignore[misc]
+
+    def gps_ids(self) -> list[str]:
+        with self._conn() as conn:
+            return [r[0] for r in conn.execute("SELECT id FROM activities WHERE kind = 'gps'")]
 
     def delete_activity(self, activity_id: str) -> bool:
         with self._conn() as conn:
@@ -212,10 +282,25 @@ class Database:
                 {"content": "", "url": None, "actor_profile": None, "created_at": now_iso(), **i},
             )
 
+    def update_reply(self, ap_id: str, actor_url: str, content: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE interactions SET content = ? WHERE ap_id = ? AND actor_url = ? AND kind = 'reply'",
+                (content, ap_id, actor_url),
+            )
+
     def remove_interaction(self, ap_id: str, actor_url: str) -> None:
         with self._conn() as conn:
             conn.execute(
                 "DELETE FROM interactions WHERE ap_id = ? AND actor_url = ?", (ap_id, actor_url)
+            )
+
+    def remove_interaction_on(self, kind: str, activity_id: str, actor_url: str) -> None:
+        """Für Undo, das nur das Ziel nennt statt der ursprünglichen Aktivität."""
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM interactions WHERE kind = ? AND activity_id = ? AND actor_url = ?",
+                (kind, activity_id, actor_url),
             )
 
     def remove_interactions_by_actor(self, actor_url: str) -> None:
@@ -232,18 +317,71 @@ class Database:
 
     # Cache für fremde Accounts ----------------------------------------------
 
-    def get_remote_actor(self, url: str, max_age_s: float) -> dict[str, Any] | None:
+    def get_remote_actor(self, url: str) -> tuple[dict[str, Any], float] | None:
+        """Gibt (Daten, Alter in Sekunden) zurück."""
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT data, fetched_at FROM remote_actors WHERE url = ?", (url,)
             ).fetchone()
-        if row is None or time.time() - row["fetched_at"] > max_age_s:
+        if row is None:
             return None
-        return json.loads(row["data"])
+        return json.loads(row["data"]), time.time() - row["fetched_at"]
 
     def put_remote_actor(self, url: str, data: dict[str, Any]) -> None:
         with self._conn() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO remote_actors (url, data, fetched_at) VALUES (?, ?, ?)",
                 (url, json.dumps(data), time.time()),
+            )
+
+    # Zustell-Warteschlange ---------------------------------------------------
+
+    def enqueue_deliveries(self, inboxes: list[str], body: str) -> None:
+        now = time.time()
+        with self._conn() as conn:
+            conn.executemany(
+                "INSERT INTO deliveries (inbox, body, next_at, created_at) VALUES (?, ?, ?, ?)",
+                [(inbox, body, now, now) for inbox in inboxes],
+            )
+
+    def due_deliveries(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM deliveries WHERE next_at <= ? ORDER BY next_at LIMIT ?",
+                (time.time(), limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delivery_done(self, delivery_id: int) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM deliveries WHERE id = ?", (delivery_id,))
+
+    def delivery_failed(self, delivery_id: int, error: str, retry_in_s: float | None) -> None:
+        """retry_in_s = None gibt endgültig auf."""
+        with self._conn() as conn:
+            if retry_in_s is None:
+                conn.execute("DELETE FROM deliveries WHERE id = ?", (delivery_id,))
+            else:
+                conn.execute(
+                    "UPDATE deliveries SET attempts = attempts + 1, next_at = ?, last_error = ?"
+                    " WHERE id = ?",
+                    (time.time() + retry_in_s, error[:500], delivery_id),
+                )
+
+    def count_deliveries(self) -> int:
+        with self._conn() as conn:
+            return conn.execute("SELECT COUNT(*) FROM deliveries").fetchone()[0]
+
+    # Profil ------------------------------------------------------------------
+
+    def get_profile(self) -> dict[str, str]:
+        with self._conn() as conn:
+            return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM profile")}
+
+    def set_profile(self, values: dict[str, str]) -> None:
+        with self._conn() as conn:
+            conn.executemany(
+                "INSERT INTO profile (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                list(values.items()),
             )

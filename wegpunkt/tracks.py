@@ -1,47 +1,22 @@
-"""GPX einlesen, Kennzahlen berechnen, Privatzonen, Höhenprofil und Routenbild."""
+"""GPS-Aufzeichnungen einlesen (GPX, FIT) und auswerten."""
 
 from __future__ import annotations
 
+import gzip
+import io
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from typing import Any
 
-import gpxpy
+from .sports import guess_sport
 
-Point = tuple[float, float, float | None]  # lat, lon, ele
-
-
-@dataclass(frozen=True)
-class Sport:
-    name: str
-    emoji: str
-    hashtag: str
-    kind: str          # "gps" oder "workout"
-    metric: str | None  # "pace" (min/km) oder "speed" (km/h)
-    color: tuple[int, int, int]
-
-
-SPORTS: dict[str, Sport] = {
-    "gravel": Sport("Gravel", "🚴", "Gravel", "gps", "speed", (196, 122, 44)),
-    "enduro": Sport("Enduro MTB", "🚵", "EnduroMTB", "gps", "speed", (46, 139, 87)),
-    "run": Sport("Joggen", "🏃", "Joggen", "gps", "pace", (37, 99, 235)),
-    "calisthenics": Sport("Calisthenics", "🤸", "Calisthenics", "workout", None, (160, 63, 209)),
-}
-GPS_SPORTS = [k for k, v in SPORTS.items() if v.kind == "gps"]
-
-
-def sport(key: str) -> Sport:
-    return SPORTS.get(key, SPORTS["run"])
-
-
-_GPX_TYPE_HINTS = {
-    "run": "run", "running": "run", "laufen": "run", "joggen": "run", "trail_running": "run", "9": "run",
-    "cycling": "gravel", "biking": "gravel", "ride": "gravel", "gravel": "gravel",
-    "gravel_cycling": "gravel", "radfahren": "gravel", "1": "gravel",
-    "mountain_biking": "enduro", "mountainbiking": "enduro", "mtb": "enduro", "enduro": "enduro",
-    "mountainbike": "enduro",
-}
+MAX_UNPACKED_BYTES = 80 * 1024 * 1024
+MOVING_SPEED_MS = 0.28          # ab ca. 1 km/h gilt man als in Bewegung
+ELEVATION_THRESHOLD_M = 3.0     # kleinere Schwankungen zählen als Rauschen
+EFFORT_DISTANCES = {"1 km": 1000.0, "5 km": 5000.0, "10 km": 10000.0,
+                    "Halbmarathon": 21097.5, "Marathon": 42195.0}
+ANALYSIS_VERSION = 2
 
 
 class TrackError(ValueError):
@@ -49,222 +24,320 @@ class TrackError(ValueError):
 
 
 @dataclass
+class Sample:
+    lat: float
+    lon: float
+    ele: float | None = None
+    time: datetime | None = None
+    hr: int | None = None
+
+
+@dataclass
 class Track:
-    name: str | None
-    sport_hint: str | None
-    started_at: datetime | None
-    distance_m: float
-    duration_s: float | None
-    moving_s: float | None
-    elevation_gain_m: float | None
-    elevation_loss_m: float | None
-    points: list[Point]
+    samples: list[Sample]
+    name: str | None = None
+    sport_hint: str | None = None
+    source: str = "gpx"
+    # Ausgewertet in analyze():
+    started_at: datetime | None = None
+    distance_m: float = 0.0
+    duration_s: float | None = None
+    moving_s: float | None = None
+    elevation_gain_m: float | None = None
+    elevation_loss_m: float | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+    # Laufende Summen je Sample (Distanz in m, Zeit in s seit Start)
+    cum_dist: list[float] = field(default_factory=list)
+    cum_time: list[float | None] = field(default_factory=list)
 
 
-def haversine_m(a: Point, b: Point) -> float:
+def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6_371_000.0
-    lat1, lat2 = math.radians(a[0]), math.radians(b[0])
-    dlat = lat2 - lat1
-    dlon = math.radians(b[1] - a[1])
-    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    return 2 * r * math.asin(math.sqrt(h))
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dlat = p2 - p1
+    dlon = math.radians(lon2 - lon1)
+    h = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(min(1.0, h)))
 
 
-def downsample(points: list[Point], max_points: int) -> list[Point]:
-    if len(points) <= max_points:
-        return points
-    step = len(points) / max_points
-    picked = [points[int(i * step)] for i in range(max_points - 1)]
-    return picked + [points[-1]]
+def _utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
-def parse_gpx(data: bytes) -> Track:
+# Einlesen ---------------------------------------------------------------------
+
+def parse(data: bytes) -> Track:
+    """Erkennt das Format am Inhalt: GPX oder FIT, jeweils auch gzip-gepackt."""
+    if data[:2] == b"\x1f\x8b":
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
+                data = f.read(MAX_UNPACKED_BYTES + 1)
+        except (OSError, EOFError) as exc:
+            raise TrackError("Die gepackte Datei lässt sich nicht öffnen.") from exc
+        if len(data) > MAX_UNPACKED_BYTES:
+            raise TrackError("Die Datei ist entpackt zu groß.")
+    track = _parse_fit(data) if data[8:12] == b".FIT" else _parse_gpx(data)
+    if len(track.samples) < 2:
+        raise TrackError("Die Datei enthält keine GPS-Punkte.")
+    analyze(track)
+    return track
+
+
+def _gpx_heart_rate(point: Any) -> int | None:
+    for ext in point.extensions or []:
+        for el in ext.iter():
+            if el.tag.rsplit("}", 1)[-1].lower() in ("hr", "heartrate") and el.text:
+                try:
+                    return int(float(el.text))
+                except ValueError:
+                    return None
+    return None
+
+
+def _parse_gpx(data: bytes) -> Track:
+    import gpxpy
+
     try:
         gpx = gpxpy.parse(data.decode("utf-8-sig", errors="replace"))
     except Exception as exc:  # gpxpy wirft verschiedene Fehlertypen
-        raise TrackError("Die Datei ist keine gültige GPX-Datei.") from exc
+        raise TrackError("Die Datei ist weder eine gültige GPX- noch eine FIT-Datei.") from exc
 
     raw = [p for t in gpx.tracks for s in t.segments for p in s.points]
     if not raw:
         raw = [p for r in gpx.routes for p in r.points]
-    if len(raw) < 2:
-        raise TrackError("Die GPX-Datei enthält keine Trackpunkte.")
-
-    start, end = gpx.get_time_bounds()
-    duration = (end - start).total_seconds() if start and end else None
-    moving = gpx.get_moving_data() if start else None
-    has_elevation = any(p.elevation is not None for p in raw)
-    updown = gpx.get_uphill_downhill() if has_elevation else None
-
-    track_type = (gpx.tracks[0].type or "").strip().lower() if gpx.tracks else ""
-    name = (gpx.tracks[0].name if gpx.tracks else None) or gpx.name
-
-    if start and start.tzinfo is None:
-        start = start.replace(tzinfo=timezone.utc)
-
+    first = gpx.tracks[0] if gpx.tracks else None
+    name = (first.name if first else None) or gpx.name
     return Track(
+        samples=[
+            Sample(p.latitude, p.longitude, p.elevation, _utc(p.time), _gpx_heart_rate(p))
+            for p in raw
+        ],
         name=name.strip() if name else None,
-        sport_hint=_GPX_TYPE_HINTS.get(track_type),
-        started_at=start.astimezone(timezone.utc) if start else None,
-        distance_m=gpx.length_2d(),
-        duration_s=duration,
-        moving_s=moving.moving_time if moving and moving.moving_time else None,
-        elevation_gain_m=updown.uphill if updown else None,
-        elevation_loss_m=updown.downhill if updown else None,
-        points=[(p.latitude, p.longitude, p.elevation) for p in raw],
+        sport_hint=guess_sport(first.type if first else None),
+        source="gpx",
     )
 
 
-def apply_privacy_zone(points: list[Point], radius_m: float) -> list[Point]:
-    """Entfernt Punkte rund um Start und Ziel, damit z. B. die Wohnadresse verborgen bleibt."""
-    if radius_m <= 0 or len(points) < 2:
-        return points
-    start, end = points[0], points[-1]
-    i, j = 0, len(points)
-    while i < j and haversine_m(points[i], start) < radius_m:
-        i += 1
-    while j > i and haversine_m(points[j - 1], end) < radius_m:
-        j -= 1
-    trimmed = points[i:j]
-    return trimmed if len(trimmed) >= 2 else []
+def _parse_fit(data: bytes) -> Track:
+    import fitdecode
+
+    semicircle = 180.0 / 2**31
+    samples: list[Sample] = []
+    sport_text = ""
+    try:
+        with fitdecode.FitReader(io.BytesIO(data), check_crc=fitdecode.CrcCheck.DISABLED) as fit:
+            for frame in fit:
+                if not isinstance(frame, fitdecode.FitDataMessage):
+                    continue
+                if frame.name == "record":
+                    lat = frame.get_value("position_lat", fallback=None)
+                    lon = frame.get_value("position_long", fallback=None)
+                    if lat is None or lon is None:
+                        continue
+                    ele = frame.get_value("enhanced_altitude", fallback=None)
+                    if ele is None:
+                        ele = frame.get_value("altitude", fallback=None)
+                    hr = frame.get_value("heart_rate", fallback=None)
+                    samples.append(Sample(
+                        lat * semicircle, lon * semicircle,
+                        float(ele) if isinstance(ele, (int, float)) else None,
+                        _utc(frame.get_value("timestamp", fallback=None)),
+                        int(hr) if isinstance(hr, (int, float)) else None,
+                    ))
+                elif frame.name in ("session", "sport") and not sport_text.strip():
+                    sport_text = " ".join(
+                        str(frame.get_value(f, fallback="") or "") for f in ("sport", "sub_sport")
+                    )
+    except Exception as exc:  # fitdecode wirft verschiedene Fehlertypen
+        raise TrackError("Die FIT-Datei ist beschädigt.") from exc
+    return Track(samples=samples, sport_hint=guess_sport(sport_text), source="fit")
 
 
-def track_profile(points: list[Point], max_points: int = 700) -> list[list[float | None]]:
-    """[lat, lon, km, höhe] für Karte und Höhenprofil im Browser."""
-    out: list[list[float | None]] = []
-    dist = 0.0
-    prev: Point | None = None
-    for p in points:
-        if prev is not None:
-            dist += haversine_m(prev, p)
-        prev = p
-        ele = round(p[2], 1) if p[2] is not None else None
-        out.append([round(p[0], 6), round(p[1], 6), round(dist / 1000, 3), ele])
-    if len(out) > max_points:
-        step = len(out) / max_points
-        out = [out[int(i * step)] for i in range(max_points - 1)] + [out[-1]]
+# Auswerten --------------------------------------------------------------------
+
+def _smooth(values: list[float], window: int = 5) -> list[float]:
+    half = window // 2
+    out = []
+    for i in range(len(values)):
+        chunk = values[max(0, i - half): i + half + 1]
+        out.append(sum(chunk) / len(chunk))
     return out
 
 
-def _project(p: Point) -> tuple[float, float]:
-    lat = math.radians(max(min(p[0], 85.0), -85.0))
-    return p[1], math.degrees(math.log(math.tan(math.pi / 4 + lat / 2)))
+def _climb(elevations: list[float]) -> tuple[float, float]:
+    """Auf- und Abstieg mit Schwelle, damit GPS-Rauschen nicht mitzählt."""
+    if len(elevations) < 2:
+        return 0.0, 0.0
+    smooth = _smooth(elevations)
+    ref = smooth[0]
+    up = down = 0.0
+    for e in smooth[1:]:
+        if e - ref >= ELEVATION_THRESHOLD_M:
+            up += e - ref
+            ref = e
+        elif ref - e >= ELEVATION_THRESHOLD_M:
+            down += ref - e
+            ref = e
+    return up, down
 
 
-def _fit(points: list[Point], w: float, h: float, pad: float) -> list[tuple[float, float]]:
-    xy = [_project(p) for p in points]
-    min_x, max_x = min(x for x, _ in xy), max(x for x, _ in xy)
-    min_y, max_y = min(y for _, y in xy), max(y for _, y in xy)
-    dx, dy = max(max_x - min_x, 1e-9), max(max_y - min_y, 1e-9)
-    factor = min((w - 2 * pad) / dx, (h - 2 * pad) / dy)
-    off_x = (w - dx * factor) / 2
-    off_y = (h - dy * factor) / 2
-    return [(off_x + (x - min_x) * factor, h - (off_y + (y - min_y) * factor)) for x, y in xy]
+def _interp(xs: list[float], ys: list[float], x: float, start: int = 0) -> tuple[float, int]:
+    """Lineare Interpolation in aufsteigenden xs. Gibt (y, index) zurück."""
+    i = start
+    while i < len(xs) - 2 and xs[i + 1] < x:
+        i += 1
+    x0, x1 = xs[i], xs[i + 1]
+    f = 0.0 if x1 <= x0 else min(max((x - x0) / (x1 - x0), 0.0), 1.0)
+    return ys[i] + (ys[i + 1] - ys[i]) * f, i
 
 
-def route_path(points: list, w: float = 160, h: float = 110, pad: float = 10) -> str:
-    """SVG-Pfad der Route für Vorschaubilder in der Liste."""
-    pts = [tuple(p) for p in points]
-    if len(pts) < 2:
-        return ""
-    pts = downsample(pts, 160)
-    coords = _fit(pts, w, h, pad)
-    return "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in coords)
+def analyze(track: Track) -> None:
+    s = track.samples
+    cum_dist = [0.0]
+    for a, b in zip(s, s[1:]):
+        cum_dist.append(cum_dist[-1] + haversine_m(a.lat, a.lon, b.lat, b.lon))
+    track.cum_dist = cum_dist
+    track.distance_m = cum_dist[-1]
+
+    timed = all(p.time is not None for p in s)
+    t0 = s[0].time if timed else None
+    track.started_at = t0 or next((p.time for p in s if p.time), None)
+    extra: dict[str, Any] = {"version": ANALYSIS_VERSION, "source": track.source}
+
+    if timed and t0 is not None:
+        cum_time = [max(0.0, (p.time - t0).total_seconds()) for p in s]  # type: ignore[operator]
+        for i in range(1, len(cum_time)):  # Zeitsprünge rückwärts glätten
+            cum_time[i] = max(cum_time[i], cum_time[i - 1])
+        track.cum_time = list(cum_time)
+        track.duration_s = cum_time[-1]
+
+        cum_moving = [0.0]
+        max_speed = 0.0
+        for i in range(1, len(s)):
+            dt = cum_time[i] - cum_time[i - 1]
+            dd = cum_dist[i] - cum_dist[i - 1]
+            moving = dt > 0 and dd / dt >= MOVING_SPEED_MS and dt < 300
+            cum_moving.append(cum_moving[-1] + (dt if moving else 0.0))
+            if moving and dt >= 1:
+                max_speed = max(max_speed, dd / dt)
+        track.moving_s = cum_moving[-1] or None
+        extra["splits"] = _splits(track, cum_moving)
+        extra["efforts"] = _best_efforts(cum_dist, cum_time)
+        if 0 < max_speed < 40:  # über 144 km/h ist ein GPS-Fehler
+            extra["max_speed_ms"] = round(max_speed, 2)
+    else:
+        track.cum_time = [None] * len(s)
+
+    elevations = [p.ele for p in s if p.ele is not None]
+    if len(elevations) > 1:
+        track.elevation_gain_m, track.elevation_loss_m = _climb(elevations)
+        extra["max_ele"] = round(max(elevations), 1)
+        extra["min_ele"] = round(min(elevations), 1)
+
+    heart = [p.hr for p in s if p.hr]
+    if len(heart) > 10:
+        extra["avg_hr"] = round(sum(heart) / len(heart))
+        extra["max_hr"] = max(heart)
+    track.extra = extra
 
 
-def render_route_png(
-    points: list[Point], path: Path, color: tuple[int, int, int] = (232, 84, 20),
-    size: tuple[int, int] = (1200, 750),
-) -> bool:
-    """Zeichnet die Route als Bild, damit sie in Mastodon & Co. als Vorschau erscheint."""
-    from PIL import Image, ImageDraw, ImageFilter
-
-    if len(points) < 2:
-        return False
-    scale = 2  # doppelt so groß zeichnen und verkleinern, für glatte Linien
-    w, h = size[0] * scale, size[1] * scale
-    pixels = _fit(points, w, h, 90 * scale)
-
-    bg = (21, 24, 29)
-    img = Image.new("RGB", (w, h), bg)
-    draw = ImageDraw.Draw(img)
-    grid = (32, 36, 43)
-    step = 60 * scale
-    for x in range(0, w, step):
-        draw.line([(x, 0), (x, h)], fill=grid, width=scale)
-    for y in range(0, h, step):
-        draw.line([(0, y), (w, y)], fill=grid, width=scale)
-    def stroke(target: ImageDraw.ImageDraw, width: int, fill) -> None:
-        # Linie mit runden Ecken: Segmente plus Kreise an jedem Punkt
-        target.line(pixels, fill=fill, width=width)
-        half = width / 2
-        for px, py in pixels:
-            target.ellipse((px - half, py - half, px + half, py + half), fill=fill)
-
-    glow_layer = Image.new("L", (w, h), 0)
-    stroke(ImageDraw.Draw(glow_layer), 26 * scale, 255)
-    glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(14 * scale))
-    img.paste(Image.new("RGB", (w, h), color), (0, 0), glow_layer.point(lambda v: int(v * 0.35)))
-    stroke(draw, 9 * scale, color)
-    r = 13 * scale
-    for (px, py), fill in ((pixels[0], (255, 255, 255)), (pixels[-1], color)):
-        draw.ellipse((px - r, py - r, px + r, py + r), fill=fill, outline=bg, width=4 * scale)
-    img.resize(size, Image.LANCZOS).save(path, "PNG", optimize=True)
-    return True
+def _splits(track: Track, cum_moving: list[float]) -> list[dict[str, float]]:
+    """Zeit je Kilometer (Bewegungszeit) samt Höhenunterschied."""
+    total = track.cum_dist[-1]
+    if total < 1000:
+        return []
+    eles = [p.ele for p in track.samples]
+    has_ele = all(e is not None for e in eles)
+    marks = [k * 1000.0 for k in range(1, int(total // 1000) + 1)]
+    if total - marks[-1] >= 50:
+        marks.append(total)
+    out = []
+    prev_t = prev_d = 0.0
+    prev_e = eles[0] if has_ele else None
+    idx = 0
+    for d in marks:
+        t, idx = _interp(track.cum_dist, cum_moving, d, idx)
+        split: dict[str, float] = {"m": round(d - prev_d), "s": round(t - prev_t, 1)}
+        if has_ele:
+            e, _ = _interp(track.cum_dist, eles, d, idx)  # type: ignore[arg-type]
+            split["ele"] = round(e - prev_e, 1)  # type: ignore[operator]
+            prev_e = e
+        out.append(split)
+        prev_t, prev_d = t, d
+    return out[:500]
 
 
-# Anzeige ------------------------------------------------------------------
-
-def _de(value: float, digits: int) -> str:
-    text = f"{value:,.{digits}f}"
-    return text.replace(",", "_").replace(".", ",").replace("_", ".")
-
-
-def distance_parts(m: float | None) -> tuple[str, str]:
-    if m is None:
-        return "–", ""
-    if m < 1000:
-        return f"{m:.0f}", "m"
-    return _de(m / 1000, 2 if m < 100_000 else 1), "km"
-
-
-def format_distance(m: float | None) -> str:
-    value, unit = distance_parts(m)
-    return f"{value} {unit}".strip()
-
-
-def format_duration(s: float | None) -> str:
-    if not s:
-        return "–"
-    s = int(round(s))
-    h, rest = divmod(s, 3600)
-    m, sec = divmod(rest, 60)
-    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+def _best_efforts(cum_dist: list[float], cum_time: list[float]) -> dict[str, float]:
+    """Schnellste Zeit über feste Distanzen irgendwo innerhalb der Aufzeichnung."""
+    out: dict[str, float] = {}
+    n = len(cum_dist)
+    for label, target in EFFORT_DISTANCES.items():
+        if cum_dist[-1] < target:
+            continue
+        best = math.inf
+        j = 1
+        for i in range(n):
+            goal = cum_dist[i] + target
+            if goal > cum_dist[-1]:
+                break
+            while cum_dist[j] < goal:
+                j += 1
+            # Zeitpunkt, an dem die Zieldistanz genau erreicht ist
+            d0, d1 = cum_dist[j - 1], cum_dist[j]
+            f = 1.0 if d1 <= d0 else (goal - d0) / (d1 - d0)
+            t = cum_time[j - 1] + (cum_time[j] - cum_time[j - 1]) * f
+            best = min(best, t - cum_time[i])
+        if math.isfinite(best) and best > 0:
+            out[label] = round(best, 1)
+    return out
 
 
-def format_hours(s: float | None) -> str:
-    """Kurz für Summen: 3 h 25 min"""
-    if not s:
-        return "0 min"
-    minutes = int(round(s / 60))
-    h, m = divmod(minutes, 60)
-    return f"{h} h {m:02d} min" if h else f"{m} min"
+# Für die Anzeige --------------------------------------------------------------
+
+def visible_points(track: Track, privacy_radius_m: float, max_points: int = 1500) -> list[list]:
+    """Öffentlich sichtbarer Teil: [lat, lon, höhe, sekunden seit Start, puls].
+
+    Punkte im Umkreis von Start und Ziel fallen weg, damit z. B. die Wohnadresse
+    verborgen bleibt.
+    """
+    s = track.samples
+    i, j = 0, len(s)
+    if privacy_radius_m > 0:
+        first, last = s[0], s[-1]
+        while i < j and haversine_m(s[i].lat, s[i].lon, first.lat, first.lon) < privacy_radius_m:
+            i += 1
+        while j > i and haversine_m(s[j - 1].lat, s[j - 1].lon, last.lat, last.lon) < privacy_radius_m:
+            j -= 1
+    if j - i < 2:
+        return []
+    indexes = list(range(i, j))
+    if len(indexes) > max_points:
+        step = len(indexes) / max_points
+        indexes = [indexes[int(k * step)] for k in range(max_points - 1)] + [indexes[-1]]
+    out = []
+    for k in indexes:
+        p = s[k]
+        t = track.cum_time[k] if track.cum_time else None
+        out.append([
+            round(p.lat, 6), round(p.lon, 6),
+            round(p.ele, 1) if p.ele is not None else None,
+            round(t) if t is not None else None,
+            p.hr,
+        ])
+    return out
 
 
-def speed_parts(sport_key: str, distance_m: float, seconds: float | None) -> tuple[str, str]:
-    if not seconds or distance_m < 10:
-        return "–", ""
-    if sport(sport_key).metric == "pace":
-        pace = seconds / (distance_m / 1000)
-        m, s = divmod(int(round(pace)), 60)
-        return f"{m}:{s:02d}", "/km"
-    return _de(distance_m / seconds * 3.6, 1), "km/h"
-
-
-def format_speed(sport_key: str, distance_m: float, seconds: float | None) -> str:
-    value, unit = speed_parts(sport_key, distance_m, seconds)
-    return f"{value} {unit}".strip()
-
-
-def format_meters(m: float | None) -> str:
-    return "–" if m is None else _de(m, 0)
+def profile(points: list[list]) -> list[list]:
+    """Ergänzt die gespeicherten Punkte um die Strecke: [lat, lon, km, höhe, sek, puls]."""
+    out = []
+    dist = 0.0
+    prev = None
+    for p in points:
+        if prev is not None:
+            dist += haversine_m(prev[0], prev[1], p[0], p[1])
+        prev = p
+        out.append([p[0], p[1], round(dist / 1000, 3), p[2] if len(p) > 2 else None,
+                    p[3] if len(p) > 3 else None, p[4] if len(p) > 4 else None])
+    return out

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon, logo %}
+{% block title %}Profil{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1 class="display">Profil</h1>
+  <p class="lede">So erscheinst du hier und im Fediverse.</p>
+</header>
+
+{% if error %}<div class="alert" role="alert">{{ icon("alert", 18) }}<span>{{ error }}</span></div>{% endif %}
+{% if saved %}<div class="alert alert-ok" role="status">{{ icon("check", 18) }}<span>Gespeichert. Deine Follower bekommen die Änderung.</span></div>{% endif %}
+
+<form class="panel form" method="post" action="/settings" enctype="multipart/form-data">
+  <div class="avatar-field">
+    <img class="avatar-img avatar-xl" id="avatar-preview" src="/media/avatar.png?v={{ profile.avatar_version }}" alt="Aktuelles Profilbild" width="84" height="84">
+    <div class="field">
+      <label class="label" for="avatar">Profilbild</label>
+      <input id="avatar" type="file" name="avatar" accept="image/png,image/jpeg,image/webp">
+      {% if profile.custom_avatar %}
+        <label class="check"><input type="checkbox" name="remove_avatar" value="1"> Eigenes Bild entfernen</label>
+      {% endif %}
+    </div>
+  </div>
+  <div class="field">
+    <label class="label" for="display_name">Name</label>
+    <input id="display_name" name="display_name" maxlength="100" value="{{ profile.display_name }}" required>
+  </div>
+  <div class="field">
+    <label class="label" for="summary">Über mich <span class="optional">optional</span></label>
+    <textarea id="summary" name="summary" rows="3" maxlength="500">{{ profile.summary }}</textarea>
+  </div>
+  <div class="form-foot">
+    <span></span>
+    <button class="btn btn-primary">{{ icon("check", 18) }} Speichern</button>
+  </div>
+</form>
+
+<section class="panel">
+  <div class="panel-head"><h2 class="eyebrow">Fediverse</h2></div>
+  <dl class="facts facts-plain">
+    <div><dt>Dein Handle</dt><dd>
+      <button class="copy-field" data-copy="{{ settings.handle }}" title="Handle kopieren"><code>{{ settings.handle }}</code>
+        <span class="copy-ico">{{ icon("copy", 14) }}</span><span class="copied-ico">{{ icon("check", 14) }}</span></button>
+    </dd></div>
+    <div><dt>Follower</dt><dd>{{ followers }}</dd></div>
+    <div><dt>Wartende Zustellungen</dt><dd>{{ pending }}</dd></div>
+  </dl>
+  <p class="note">Handle und Domain stehen in der Datei <code>.env</code> und sollten nach dem Start nicht mehr geändert werden.</p>
+</section>
+{% endblock %}

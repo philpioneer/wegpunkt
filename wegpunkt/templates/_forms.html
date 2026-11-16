@@ -1,0 +1,61 @@
+{% from "_icons.html" import icon %}
+
+{% macro ex_row(r) -%}
+<div class="ex-row">
+  <input class="ex-name" name="exercise_name" list="ex-suggestions" placeholder="z. B. Klimmzüge"
+         value="{{ r.name or '' }}" aria-label="Übung" autocomplete="off" maxlength="80">
+  <input class="ex-sets" name="exercise_sets" placeholder="8 8 7 6" value="{{ r.sets or '' }}"
+         aria-label="Sätze" autocomplete="off" inputmode="text">
+  <select class="ex-unit" name="exercise_unit" aria-label="Einheit">
+    <option value="reps">Wdh.</option>
+    <option value="sec"{% if r.unit == "sec" %} selected{% endif %}>Sek.</option>
+  </select>
+  <input class="ex-weight" name="exercise_weight" placeholder="+ kg" value="{{ r.weight or '' }}"
+         inputmode="decimal" aria-label="Zusatzgewicht in kg" autocomplete="off">
+  <button type="button" class="icon-btn ex-remove" aria-label="Übung entfernen">{{ icon("x", 18) }}</button>
+  <output class="ex-preview"></output>
+</div>
+{%- endmacro %}
+
+{% macro exercise_editor(rows) -%}
+<fieldset class="field">
+  <legend class="label">Übungen</legend>
+  <div class="ex-cols" aria-hidden="true"><span>Übung</span><span>Sätze</span><span>Einheit</span><span>Zusatz</span></div>
+  <div id="ex-rows">{% for r in rows %}{{ ex_row(r) }}{% endfor %}</div>
+  <template id="ex-template">{{ ex_row({}) }}</template>
+  <div class="ex-actions">
+    <button type="button" class="btn btn-ghost btn-sm" id="add-ex">{{ icon("plus", 16) }} Übung hinzufügen</button>
+    <output class="workout-total" id="workout-total"></output>
+  </div>
+  <p class="note">Sätze als „8 8 7 6“ oder „4x8“. Für Halteübungen wie L-Sit oder Handstand „Sek.“ wählen.</p>
+</fieldset>
+<datalist id="ex-suggestions">{% for s in suggestions %}<option value="{{ s }}">{% endfor %}</datalist>
+{%- endmacro %}
+
+{% macro sport_picker(selected, with_auto=true) -%}
+<fieldset class="field">
+  <legend class="label">Sportart</legend>
+  <div class="sport-picker">
+    {% for key in gps_sports %}{% set sp = sports[key] %}
+      <label class="sport-opt s-{{ key }}">
+        <input type="radio" name="sport" value="{{ key }}"{% if selected == key %} checked{% endif %}>
+        <span class="sport-opt-body">{{ icon(key, 30) }}<b>{{ sp.name }}</b></span>
+      </label>
+    {% endfor %}
+    {% if with_auto %}
+    <label class="sport-opt">
+      <input type="radio" name="sport" value="auto"{% if selected not in gps_sports %} checked{% endif %}>
+      <span class="sport-opt-body">{{ icon("sparkle", 30) }}<b>Automatisch</b><small>aus der Datei</small></span>
+    </label>
+    {% endif %}
+  </div>
+</fieldset>
+{%- endmacro %}
+
+{% macro private_switch(checked) -%}
+<label class="switch">
+  <input type="checkbox" name="private" value="1"{% if checked %} checked{% endif %}>
+  <span class="switch-track" aria-hidden="true"></span>
+  <span class="switch-text"><b>Privat</b><small>Nur du siehst die Aktivität. Sie geht nicht ins Fediverse.</small></span>
+</label>
+{%- endmacro %}

@@ -1,23 +1,33 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon, logo %}
 {% block title %}{{ a.title }}{% endblock %}
+{% block description %}{{ sp.name }} · {{ (a.started_at or a.created_at) | nice_date }}{% endblock %}
 {% block head %}
+{% if a.visibility == "public" %}
 <link rel="alternate" type="application/activity+json" href="{{ settings.base_url }}/activities/{{ a.id }}">
 <meta property="og:title" content="{{ a.title }}">
 <meta property="og:description" content="{{ sp.name }} · {{ (a.started_at or a.created_at) | nice_date }}">
 {% if a.has_image %}<meta property="og:image" content="{{ settings.base_url }}/media/{{ a.id }}.png">{% endif %}
+{% else %}
+<meta name="robots" content="noindex">
+{% endif %}
 {% if a.kind != "workout" and a.track %}
 <link rel="stylesheet" href="/static/leaflet/leaflet.css">
-<script src="/static/leaflet/leaflet.js"></script>
 {% endif %}
 {% endblock %}
 {% block content %}
-<a class="back" href="/">{{ icon("arrow-left", 16) }} Übersicht</a>
+<div class="page-top">
+  <a class="back" href="/">{{ icon("arrow-left", 16) }} Übersicht</a>
+  {% if is_owner %}
+    <a class="btn btn-ghost btn-sm" href="/activities/{{ a.id }}/edit">{{ icon("edit", 16) }} Bearbeiten</a>
+  {% endif %}
+</div>
 
 <header class="act-hero s-{{ a.sport }}">
   <div class="act-meta">
     <span class="badge">{{ icon(a.sport, 15) }}{{ sp.name }}</span>
-    <time>{{ (a.started_at or a.created_at) | nice_date }}</time>
+    {% if a.visibility != "public" %}<span class="badge badge-muted">{{ icon("lock", 13) }}Privat</span>{% endif %}
+    <time datetime="{{ a.started_at or a.created_at }}">{{ (a.started_at or a.created_at) | nice_date }}</time>
   </div>
   <h1 class="display">{{ a.title }}</h1>
   {% if a.description %}<p class="lede description">{{ a.description }}</p>{% endif %}
@@ -35,11 +45,19 @@
   <section class="exercises s-{{ a.sport }}">
     {% for e in a.workout %}
       {% set top = e.sets | max %}
+      {% set h = history[e.name] %}
       <article class="exercise">
         <header class="ex-head">
           <span class="ex-index">{{ loop.index }}</span>
-          <h3>{{ e.name }}</h3>
-          {% if e.weight_kg %}<span class="tag">{{ e.weight_kg | weight }}</span>{% endif %}
+          <div class="ex-title">
+            <h3>{{ e.name }}</h3>
+            {% if h.record or e.weight_kg %}
+            <div class="ex-tags">
+              {% if e.weight_kg %}<span class="tag">{{ e.weight_kg | weight }}</span>{% endif %}
+              {% if h.record %}<span class="tag tag-record" title="Bester Einzelsatz bisher">{{ icon("trophy", 13) }} Bestwert</span>{% endif %}
+            </div>
+            {% endif %}
+          </div>
           <span class="ex-total">{{ e.sets | sum }}<small>{{ units[e.unit] }}</small></span>
         </header>
         <ol class="set-bars" aria-label="Sätze">
@@ -50,6 +68,24 @@
             </li>
           {% endfor %}
         </ol>
+        <footer class="ex-foot">
+          {% if h.last %}
+            <a class="ex-last" href="/activities/{{ h.last.id }}">
+              <small>Zuletzt · {{ h.last.date }}</small>
+              <span>{{ h.last.sets }}{% if h.last.delta %}
+                <b class="{{ 'up' if h.last.delta > 0 else 'down' }}">{{ "+" if h.last.delta > 0 }}{{ h.last.delta }}</b>{% endif %}</span>
+            </a>
+            {% if h.spark %}
+              <svg class="spark" viewBox="0 0 {{ h.spark.w }} {{ h.spark.h }}" width="{{ h.spark.w }}" height="{{ h.spark.h }}" role="img"
+                   aria-label="Verlauf der letzten {{ h.totals | length }} Einheiten: {{ h.totals | join(', ') }}">
+                <polyline points="{{ h.spark.points }}"/>
+                <circle cx="{{ h.spark.last[0] }}" cy="{{ h.spark.last[1] }}" r="3"/>
+              </svg>
+            {% endif %}
+          {% else %}
+            <span class="ex-last"><small>Zum ersten Mal eingetragen</small></span>
+          {% endif %}
+        </footer>
       </article>
     {% endfor %}
   </section>
@@ -57,19 +93,30 @@
   {% set d = distance_parts(a.distance_m) %}
   {% set v = speed_parts(a.sport, a.distance_m, a.moving_s or a.duration_s) %}
   <dl class="kpis kpis-hero s-{{ a.sport }}">
-    <div class="kpi kpi-lead"><dt>Distanz</dt><dd>{{ d[0] }}<small>{{ d[1] }}</small></dd></div>
+    <div class="kpi"><dt>Distanz</dt><dd>{{ d[0] }}<small>{{ d[1] }}</small></dd></div>
     <div class="kpi"><dt>Bewegungszeit</dt><dd>{{ (a.moving_s or a.duration_s) | duration }}</dd></div>
     <div class="kpi"><dt>{{ "Tempo" if sp.metric == "pace" else "Ø Geschwindigkeit" }}</dt><dd>{{ v[0] }}<small>{{ v[1] }}</small></dd></div>
     <div class="kpi"><dt>Anstieg</dt><dd>{{ a.elevation_gain_m | meters }}<small>m</small></dd></div>
     {% if a.sport == "enduro" %}
       <div class="kpi"><dt>Abfahrt</dt><dd>{{ a.elevation_loss_m | meters }}<small>m</small></dd></div>
+    {% elif a.extra.avg_hr %}
+      <div class="kpi"><dt>Ø Puls</dt><dd>{{ a.extra.avg_hr }}<small>bpm</small></dd></div>
     {% else %}
       <div class="kpi"><dt>Gesamtzeit</dt><dd>{{ a.duration_s | duration }}</dd></div>
     {% endif %}
   </dl>
 
+  <dl class="facts">
+    {% if (a.sport == "enduro" or a.extra.avg_hr) and a.duration_s and a.moving_s and a.duration_s - a.moving_s > 30 %}<div><dt>Gesamtzeit</dt><dd>{{ a.duration_s | duration }}</dd></div>{% endif %}
+    {% if a.sport == "enduro" and a.extra.avg_hr %}<div><dt>Ø Puls</dt><dd>{{ a.extra.avg_hr }} bpm</dd></div>{% endif %}
+    {% if a.extra.max_hr %}<div><dt>Max. Puls</dt><dd>{{ a.extra.max_hr }} bpm</dd></div>{% endif %}
+    {% if max_speed and sp.metric == "speed" %}<div><dt>Höchstgeschwindigkeit</dt><dd>{{ max_speed }} km/h</dd></div>{% endif %}
+    {% if a.extra.max_ele is defined %}<div><dt>Höchster Punkt</dt><dd>{{ a.extra.max_ele | meters }} m</dd></div>{% endif %}
+    {% if a.sport != "enduro" and a.elevation_loss_m %}<div><dt>Abstieg</dt><dd>{{ a.elevation_loss_m | meters }} m</dd></div>{% endif %}
+  </dl>
+
   {% if a.track %}
-  <section class="map-card s-{{ a.sport }}">
+  <section class="map-card s-{{ a.sport }}" data-default-layer="{{ 'topo' if a.sport == 'enduro' else 'map' }}">
     <div id="map" aria-label="Karte der Route"></div>
     <div class="map-switch" role="group" aria-label="Kartenstil">
       <button type="button" data-layer="map">Karte</button>
@@ -77,16 +124,56 @@
     </div>
   </section>
   <p class="note">{{ icon("shield", 14) }} Rund um Start und Ziel ist die Strecke auf {{ "%.0f" | format(settings.privacy_radius_m) }} m ausgeblendet.</p>
-  {% endif %}
 
-  {% if has_elevation %}
-  <section class="panel elevation-panel s-{{ a.sport }}">
+  {% if has_elevation or has_time %}
+  <section class="panel chart-panel s-{{ a.sport }}" data-metric="{{ sp.metric }}">
     <div class="panel-head">
-      <h2 class="eyebrow">Höhenprofil</h2>
+      <div class="tabs" role="tablist" aria-label="Verlauf">
+        {% if has_elevation %}<button type="button" role="tab" data-series="ele">Höhe</button>{% endif %}
+        {% if has_time %}<button type="button" role="tab" data-series="speed">{{ "Tempo" if sp.metric == "pace" else "Geschwindigkeit" }}</button>{% endif %}
+        {% if has_hr %}<button type="button" role="tab" data-series="hr">Puls</button>{% endif %}
+      </div>
       <span class="readout" id="readout" aria-live="polite"></span>
     </div>
-    <div class="elev" id="elev"></div>
+    <div class="elev" id="chart"></div>
   </section>
+  {% endif %}
+  <script type="application/json" id="track-data">{{ profile_json | safe }}</script>
+  {% endif %}
+
+  {% if splits or efforts %}
+  <div class="two-col">
+    {% if splits %}
+    <section class="panel s-{{ a.sport }}">
+      <div class="panel-head"><h2 class="eyebrow">Kilometer</h2><span class="muted small">Tempo je km</span></div>
+      <ol class="splits">
+        {% for r in splits %}
+          <li class="{{ 'is-fastest' if r.fastest }}">
+            <span class="split-km">{{ r.label }}</span>
+            <span class="split-bar"><i style="width: {{ r.width }}%"></i></span>
+            <span class="split-pace">{{ r.pace }}</span>
+            <span class="split-ele">{% if r.ele is not none %}{{ "+" if r.ele > 0 }}{{ r.ele }} m{% endif %}</span>
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+    {% endif %}
+    {% if efforts %}
+    <section class="panel s-{{ a.sport }}">
+      <div class="panel-head"><h2 class="eyebrow">Schnellste Abschnitte</h2></div>
+      <ul class="efforts">
+        {% for r in efforts %}
+          <li>
+            <span class="effort-label">{{ r.label }}</span>
+            {% if r.record %}<span class="tag tag-record">{{ icon("trophy", 13) }} Bestzeit</span>{% endif %}
+            <span class="effort-time">{{ r.time }}</span>
+            <span class="effort-pace">{% if r.label != "1 km" %}{{ r.pace }} /km{% endif %}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+  </div>
   {% endif %}
 {% endif %}
 
@@ -100,162 +187,45 @@
     </div>
   </div>
 
-  {% if likes or boosts %}
-  <div class="avatars">
-    {% for i in (likes + boosts)[:14] %}
-      <a class="avatar avatar-sm" href="{{ i.actor_profile }}" rel="nofollow noopener" title="{{ i.actor_name }} ({{ 'Like' if i.kind == 'like' else 'Boost' }})">{{ i.actor_name | initials }}</a>
+  {% if a.visibility != "public" %}
+    <p class="muted">Diese Aktivität ist privat. Nur du siehst sie, und sie wird nicht ins Fediverse geschickt.</p>
+  {% else %}
+    {% if likes or boosts %}
+    <div class="avatars">
+      {% for i in (likes + boosts)[:14] %}
+        <a class="avatar avatar-sm" href="{{ i.actor_profile }}" rel="nofollow noopener" title="{{ i.actor_name }} ({{ 'Like' if i.kind == 'like' else 'Boost' }})">{{ i.actor_name | initials }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% for r in replies %}
+      <article class="reply">
+        <div class="avatar avatar-sm" aria-hidden="true">{{ r.actor_name | initials }}</div>
+        <div class="reply-body">
+          <p class="reply-who"><a href="{{ r.actor_profile }}" rel="nofollow noopener">{{ r.actor_name }}</a> <span>{{ r.actor_handle }}</span></p>
+          <p class="reply-text">{{ r.content }}</p>
+          <a class="reply-time" href="{{ r.url }}" rel="nofollow noopener">{{ r.created_at | local_time }}</a>
+        </div>
+      </article>
     {% endfor %}
-  </div>
+
+    {% if not (likes or boosts or replies) %}<p class="muted">Noch keine Reaktionen.</p>{% endif %}
+
+    {% set own_url = settings.base_url ~ "/activities/" ~ a.id %}
+    <div class="reply-hint">
+      <span>Antworten: Adresse in Mastodon suchen</span>
+      <button class="copy-field" data-copy="{{ own_url }}" title="Adresse kopieren">
+        <code>{{ own_url }}</code>
+        <span class="copy-ico">{{ icon("copy", 14) }}</span><span class="copied-ico">{{ icon("check", 14) }}</span>
+      </button>
+    </div>
   {% endif %}
-
-  {% for r in replies %}
-    <article class="reply">
-      <div class="avatar avatar-sm" aria-hidden="true">{{ r.actor_name | initials }}</div>
-      <div class="reply-body">
-        <p class="reply-who"><a href="{{ r.actor_profile }}" rel="nofollow noopener">{{ r.actor_name }}</a> <span>{{ r.actor_handle }}</span></p>
-        <p class="reply-text">{{ r.content }}</p>
-        <a class="reply-time" href="{{ r.url }}" rel="nofollow noopener">{{ r.created_at | local_time }}</a>
-      </div>
-    </article>
-  {% endfor %}
-
-  {% if not (likes or boosts or replies) %}<p class="muted">Noch keine Reaktionen.</p>{% endif %}
-
-  {% set own_url = settings.base_url ~ "/activities/" ~ a.id %}
-  <div class="reply-hint">
-    <span>Antworten: Adresse in Mastodon suchen</span>
-    <button class="copy-field" data-copy="{{ own_url }}" title="Adresse kopieren">
-      <code>{{ own_url }}</code>
-      <span class="copy-ico">{{ icon("copy", 14) }}</span><span class="copied-ico">{{ icon("check", 14) }}</span>
-    </button>
-  </div>
 </section>
-
-{% if is_owner %}
-<div class="owner-actions">
-  {% if a.kind != "workout" %}
-    <a class="btn btn-ghost btn-sm" href="/activities/{{ a.id }}/gpx">{{ icon("download", 16) }} Original-GPX</a>
-  {% else %}<span></span>{% endif %}
-  <form method="post" action="/activities/{{ a.id }}/delete"
-        onsubmit="return confirm('Aktivität wirklich löschen? Sie wird auch im Fediverse gelöscht.')">
-    <button class="btn btn-danger btn-sm">{{ icon("trash", 16) }} Löschen</button>
-  </form>
-</div>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}
 {% if a.kind != "workout" and a.track %}
-<script>
-(() => {
-  const P = {{ profile_json | safe }};  // [lat, lon, km, höhe]
-  const root = document.querySelector(".map-card");
-  const color = getComputedStyle(root).getPropertyValue("--sport").trim() || "#e85414";
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  const fmt = (n, d) => n.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
-
-  // Karte -------------------------------------------------------------
-  const map = L.map("map", { scrollWheelZoom: false, zoomSnap: 0.25 });
-  const osm = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende';
-  const layers = {
-    map: L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "rastertiles/voyager"}/{z}/{x}/{y}{r}.png`,
-      { subdomains: "abcd", maxZoom: 20, attribution: `${osm} &copy; <a href="https://carto.com/attributions">CARTO</a>` }),
-    topo: L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-      { subdomains: "abc", maxZoom: 17, attribution: `${osm}, SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)` }),
-  };
-  let active = "{{ 'topo' if a.sport == 'enduro' else 'map' }}";
-  layers[active].addTo(map);
-  const buttons = root.querySelectorAll("[data-layer]");
-  const mark = () => buttons.forEach(b => b.classList.toggle("is-active", b.dataset.layer === active));
-  buttons.forEach(b => b.addEventListener("click", () => {
-    map.removeLayer(layers[active]); active = b.dataset.layer; layers[active].addTo(map); mark();
-  }));
-  mark();
-
-  const ll = P.map(p => [p[0], p[1]]);
-  L.polyline(ll, { color: dark ? "#0e1013" : "#ffffff", weight: 9, opacity: 0.85, interactive: false }).addTo(map);
-  const line = L.polyline(ll, { color, weight: 4.5, lineJoin: "round" }).addTo(map);
-  const dot = (latlng, fill) => L.circleMarker(latlng, { radius: 6.5, color: "#fff", weight: 3, fillColor: fill, fillOpacity: 1 }).addTo(map);
-  dot(ll[0], "#1b1e23"); dot(ll[ll.length - 1], color);
-  map.fitBounds(line.getBounds(), { padding: [32, 32] });
-  const cursor = L.circleMarker(ll[0], { radius: 8, color: "#fff", weight: 3, fillColor: color, fillOpacity: 1, opacity: 0, interactive: false }).addTo(map);
-  const showCursor = (i) => {
-    if (i == null) { cursor.setStyle({ opacity: 0, fillOpacity: 0 }); return; }
-    cursor.setLatLng(ll[i]).setStyle({ opacity: 1, fillOpacity: 1 });
-  };
-
-  // Höhenprofil ---------------------------------------------------------
-  const box = document.getElementById("elev");
-  const readout = document.getElementById("readout");
-  let setProfileCursor = () => {};
-  const withEle = P.map((p, i) => [p, i]).filter(([p]) => p[3] !== null);
-  if (box && withEle.length > 1) {
-    const W = 1000, H = 200, top = 14, bottom = 26;
-    const maxKm = P[P.length - 1][2] || 1;
-    let lo = Math.min(...withEle.map(([p]) => p[3])), hi = Math.max(...withEle.map(([p]) => p[3]));
-    const padE = Math.max((hi - lo) * 0.12, 5); lo -= padE; hi += padE;
-    const x = km => km / maxKm * W;
-    const y = e => top + (1 - (e - lo) / (hi - lo)) * (H - top - bottom);
-    const pts = withEle.map(([p]) => `${x(p[2]).toFixed(1)},${y(p[3]).toFixed(1)}`);
-    const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => {
-      const km = maxKm * f, tx = x(km);
-      return `<text class="axis" x="${tx}" y="${H - 6}" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}">${fmt(km, maxKm < 10 ? 1 : 0)} km</text>`;
-    }).join("");
-    const eMin = Math.min(...withEle.map(([p]) => p[3])), eMax = Math.max(...withEle.map(([p]) => p[3]));
-    box.innerHTML = `
-      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
-           aria-label="Höhenprofil zwischen ${fmt(eMin, 0)} und ${fmt(eMax, 0)} Metern">
-        <defs><linearGradient id="elev-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="${color}" stop-opacity=".38"/><stop offset="1" stop-color="${color}" stop-opacity=".02"/>
-        </linearGradient></defs>
-        <line class="grid" x1="0" x2="${W}" y1="${y(eMax)}" y2="${y(eMax)}"/>
-        <line class="grid" x1="0" x2="${W}" y1="${y(eMin)}" y2="${y(eMin)}"/>
-        <polygon points="0,${H - bottom} ${pts.join(" ")} ${W},${H - bottom}" fill="url(#elev-fill)"/>
-        <polyline points="${pts.join(" ")}" fill="none" stroke="${color}" stroke-width="2.4" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
-        <line class="crosshair" id="cross" x1="0" x2="0" y1="${top - 6}" y2="${H - bottom}" vector-effect="non-scaling-stroke"/>
-        ${ticks}
-      </svg>
-      <span class="elev-label elev-max" style="top:${y(eMax) / H * 100}%">${fmt(eMax, 0)} m</span>
-      <span class="elev-label elev-min" style="top:${y(eMin) / H * 100}%">${fmt(eMin, 0)} m</span>
-      <span class="elev-dot" id="elev-dot"></span>`;
-    const svg = box.querySelector("svg"), cross = box.querySelector("#cross"), edot = box.querySelector("#elev-dot");
-    const nearestByKm = km => {
-      let a = 0, b = withEle.length - 1;
-      while (b - a > 1) { const m = (a + b) >> 1; (withEle[m][0][2] < km ? (a = m) : (b = m)); }
-      return Math.abs(withEle[a][0][2] - km) <= Math.abs(withEle[b][0][2] - km) ? a : b;
-    };
-    const idle = `${fmt(eMin, 0)} – ${fmt(eMax, 0)} m`;
-    readout.textContent = idle;
-    setProfileCursor = (j) => {
-      if (j == null) { box.classList.remove("is-active"); readout.textContent = idle; showCursor(null); return; }
-      const [p, i] = withEle[j];
-      const px = x(p[2]) / W * 100, py = y(p[3]) / H * 100;
-      cross.setAttribute("x1", x(p[2])); cross.setAttribute("x2", x(p[2]));
-      edot.style.left = px + "%"; edot.style.top = py + "%";
-      box.classList.add("is-active");
-      readout.textContent = `${fmt(p[2], 2)} km · ${fmt(p[3], 0)} m`;
-      showCursor(i);
-    };
-    const onMove = (e) => {
-      const r = svg.getBoundingClientRect();
-      const f = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
-      setProfileCursor(nearestByKm(f * maxKm));
-    };
-    svg.addEventListener("pointermove", onMove);
-    svg.addEventListener("pointerdown", onMove);
-    svg.addEventListener("pointerleave", () => setProfileCursor(null));
-
-    line.on("mousemove", (e) => {
-      let best = 0, bestD = Infinity;
-      withEle.forEach(([p], j) => {
-        const d = (p[0] - e.latlng.lat) ** 2 + (p[1] - e.latlng.lng) ** 2;
-        if (d < bestD) { bestD = d; best = j; }
-      });
-      setProfileCursor(best);
-    });
-    line.on("mouseout", () => setProfileCursor(null));
-  }
-})();
-</script>
+<script src="/static/leaflet/leaflet.js" defer></script>
+<script src="/static/activity.js?v={{ version }}" defer></script>
 {% endif %}
 {% endblock %}

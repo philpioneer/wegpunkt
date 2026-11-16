@@ -98,3 +98,20 @@ def format_exercise(e: dict[str, Any]) -> str:
     weight = format_weight(e.get("weight_kg"))
     label = f"{e['name']} ({weight})" if weight else e["name"]
     return f"{label}: {' · '.join(str(v) for v in e['sets'])} {UNITS[e['unit']]}"
+
+
+def form_rows(exercises: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    """Ein gespeichertes Workout zurück in Formularzeilen, zum Bearbeiten oder als Vorlage."""
+    return [
+        {
+            "name": e["name"],
+            "sets": " ".join(str(v) for v in e["sets"]),
+            "unit": e["unit"],
+            "weight": f"{e['weight_kg']:g}".replace(".", ",") if e.get("weight_kg") else "",
+        }
+        for e in exercises or []
+    ]
+
+
+def exercise_key(name: str) -> str:
+    return " ".join(name.lower().split())

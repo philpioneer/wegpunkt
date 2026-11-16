@@ -1,4 +1,4 @@
-"""Einstellungen aus Umgebungsvariablen."""
+"""Einstellungen aus Umgebungsvariablen oder einer .env-Datei."""
 
 from __future__ import annotations
 
@@ -39,6 +39,23 @@ class Settings:
         return f"@{self.username}@{self.domain}"
 
 
+def read_env_file(path: Path) -> dict[str, str]:
+    """Liest einfache KEY=WERT-Zeilen. Anführungszeichen um den Wert sind erlaubt."""
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key.strip().removeprefix("export ").strip()] = value
+    return values
+
+
 def _persistent_secret(data_dir: Path) -> str:
     path = data_dir / "secret_key"
     if path.exists():
@@ -49,14 +66,15 @@ def _persistent_secret(data_dir: Path) -> str:
     return value
 
 
-def load_settings() -> Settings:
-    env = os.environ
+def load_settings(env_file: Path | None = None) -> Settings:
+    # Echte Umgebungsvariablen haben Vorrang vor der .env-Datei.
+    env = {**read_env_file(env_file or Path(".env")), **os.environ}
     domain = env.get("WEGPUNKT_DOMAIN", "localhost:8000")
     data_dir = Path(env.get("WEGPUNKT_DATA_DIR", "data")).resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
 
     local = domain.startswith(("localhost", "127.0.0.1"))
-    https = env.get("WEGPUNKT_HTTPS", "0" if local else "1") not in ("0", "false", "no")
+    https = env.get("WEGPUNKT_HTTPS", "0" if local else "1").lower() not in ("0", "false", "no")
 
     password = env.get("WEGPUNKT_PASSWORD", "")
     if not password:

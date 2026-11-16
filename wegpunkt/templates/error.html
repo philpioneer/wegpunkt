@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon, logo %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="empty error-page">
+  <span class="error-code">{{ status }}</span>
+  <h1 class="display">{{ title }}</h1>
+  <p>{{ detail or ("Diese Seite gibt es nicht (mehr)." if status == 404 else "Bitte versuch es später noch einmal.") }}</p>
+  <a class="btn btn-primary" href="/">{{ icon("arrow-left", 18) }} Zur Übersicht</a>
+</div>
+{% endblock %}

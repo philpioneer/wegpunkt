@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon, logo %}
+{% from "_forms.html" import exercise_editor, sport_picker, private_switch %}
+{% block title %}{{ a.title }} bearbeiten{% endblock %}
+{% block content %}
+<div class="page-top">
+  <a class="back" href="/activities/{{ a.id }}">{{ icon("arrow-left", 16) }} Zurück zur Aktivität</a>
+</div>
+<header class="page-head page-head-tight">
+  <h1 class="display">Bearbeiten</h1>
+</header>
+
+{% if error %}<div class="alert" role="alert">{{ icon("alert", 18) }}<span>{{ error }}</span></div>{% endif %}
+
+<form class="panel form" method="post" action="/activities/{{ a.id }}/edit">
+  {% if a.kind == "workout" %}
+    <div class="grid-3">
+      <div class="field">
+        <label class="label" for="title">Titel</label>
+        <input id="title" name="title" maxlength="200" value="{{ values.title }}" placeholder="Calisthenics">
+      </div>
+      <div class="field">
+        <label class="label" for="started">Datum & Uhrzeit</label>
+        <input id="started" name="started" type="datetime-local" value="{{ values.started }}" required>
+      </div>
+      <div class="field">
+        <label class="label" for="duration">Dauer <span class="optional">Minuten</span></label>
+        <input id="duration" name="duration_min" inputmode="decimal" value="{{ values.duration_min }}" placeholder="45">
+      </div>
+    </div>
+    {{ exercise_editor(rows) }}
+  {% else %}
+    {{ sport_picker(values.sport, with_auto=false) }}
+    <div class="field">
+      <label class="label" for="title">Titel</label>
+      <input id="title" name="title" maxlength="200" value="{{ values.title }}" required>
+    </div>
+  {% endif %}
+  <div class="field">
+    <label class="label" for="description">{{ "Notizen" if a.kind == "workout" else "Beschreibung" }} <span class="optional">optional</span></label>
+    <textarea id="description" name="description" rows="4" maxlength="5000">{{ values.description }}</textarea>
+  </div>
+  {{ private_switch(values.private) }}
+
+  <div class="form-foot">
+    <p class="note">{{ icon("globe", 14) }} Änderungen an öffentlichen Aktivitäten gehen auch an deine Follower.</p>
+    <button class="btn btn-primary s-{{ a.sport }}">{{ icon("check", 18) }} Speichern</button>
+  </div>
+</form>
+
+<section class="panel danger-zone">
+  <div class="panel-head"><h2 class="eyebrow">Weitere Aktionen</h2></div>
+  <div class="danger-row">
+    {% if a.kind != "workout" %}
+      <a class="btn btn-ghost btn-sm" href="/activities/{{ a.id }}/original">{{ icon("download", 16) }} Originaldatei herunterladen</a>
+    {% else %}<span></span>{% endif %}
+    <form method="post" action="/activities/{{ a.id }}/delete"
+          data-confirm="Aktivität wirklich löschen? Sie wird auch im Fediverse gelöscht.">
+      <button class="btn btn-danger btn-sm">{{ icon("trash", 16) }} Aktivität löschen</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

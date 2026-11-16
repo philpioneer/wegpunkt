@@ -4,22 +4,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{{ settings.display_name }}{% endblock %} · Wegpunkt</title>
+  <title>{% block title %}{{ profile.display_name }}{% endblock %} · Wegpunkt</title>
+  <meta name="description" content="{% block description %}{{ profile.summary or 'Aktivitäten von ' ~ profile.display_name }}{% endblock %}">
   <meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0e1013" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#0d0f12" media="(prefers-color-scheme: dark)">
+  <script nonce="{{ nonce }}">try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="alternate" type="application/activity+json" href="{{ settings.actor_url }}">
   <link rel="preload" href="/static/fonts/barlow-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ version }}">
   {% block head %}{% endblock %}
 </head>
 <body>
+  <a class="skip-link" href="#inhalt">Zum Inhalt springen</a>
   <header class="site-header">
     <div class="wrap header-inner">
       <a class="brand" href="/">{{ logo(28) }}<span>Wegpunkt</span></a>
-      <nav class="header-nav">
+      <nav class="header-nav" aria-label="Hauptmenü">
         {% if is_owner %}
-          <a class="btn btn-primary btn-sm" href="/upload">{{ icon("plus", 18) }}<span>Eintragen</span></a>
+          <a class="btn btn-primary btn-sm" href="/upload" aria-label="Eintragen">{{ icon("plus", 18) }}<span>Eintragen</span></a>
+        {% endif %}
+        <button class="icon-btn theme-toggle" type="button" data-theme-toggle aria-label="Farbschema wechseln" title="Farbschema wechseln">
+          <span class="theme-auto">{{ icon("auto") }}</span><span class="theme-light">{{ icon("sun") }}</span><span class="theme-dark">{{ icon("moon") }}</span>
+        </button>
+        {% if is_owner %}
+          <a class="icon-btn" href="/settings" title="Profil" aria-label="Profil">{{ icon("user") }}</a>
           <form method="post" action="/logout">
             <button class="icon-btn" title="Abmelden" aria-label="Abmelden">{{ icon("logout") }}</button>
           </form>
@@ -30,7 +39,7 @@
     </div>
   </header>
 
-  <main class="wrap">{% block content %}{% endblock %}</main>
+  <main class="wrap" id="inhalt">{% block content %}{% endblock %}</main>
 
   <footer class="site-footer wrap">
     <span>{{ logo(16) }} Wegpunkt</span>
@@ -40,16 +49,7 @@
     </button>
   </footer>
 
-  <script>
-    document.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-copy]");
-      if (!b || !navigator.clipboard) return;
-      navigator.clipboard.writeText(b.dataset.copy).then(() => {
-        b.classList.add("is-copied");
-        setTimeout(() => b.classList.remove("is-copied"), 1600);
-      });
-    });
-  </script>
+  <script src="/static/app.js?v={{ version }}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

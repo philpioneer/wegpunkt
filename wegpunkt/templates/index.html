@@ -1,34 +1,37 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon, logo %}
+{% from "_cards.html" import activity_card %}
 {% block content %}
 <section class="hero">
   <div class="hero-id">
-    <div class="avatar avatar-xl" aria-hidden="true">{{ settings.display_name | initials }}</div>
+    <img class="avatar-img avatar-xl" src="/media/avatar.png?v={{ profile.avatar_version }}" alt="" width="84" height="84">
     <div class="hero-text">
-      <h1 class="display">{{ settings.display_name }}</h1>
+      <h1 class="display">{{ profile.display_name }}</h1>
       <button class="handle" data-copy="{{ settings.handle }}" title="Handle kopieren">
         <span>{{ settings.handle }}</span>
         <span class="copy-ico">{{ icon("copy", 14) }}</span><span class="copied-ico">{{ icon("check", 14) }}</span>
       </button>
-      {% if settings.summary %}<p class="lede">{{ settings.summary }}</p>{% endif %}
+      {% if profile.summary %}<p class="lede description">{{ profile.summary }}</p>{% endif %}
     </div>
   </div>
   <dl class="hero-meta">
     <div><dt>Aktivitäten</dt><dd>{{ totals.count }}</dd></div>
-    <div><dt>Kilometer</dt><dd>{{ distance_parts(totals.distance_m)[0] if totals.distance_m >= 1000 else "0" }}</dd></div>
+    <div><dt>Kilometer</dt><dd>{{ "{:,.0f}".format(totals.distance_m / 1000).replace(",", ".") }}</dd></div>
+    <div><dt>Stunden</dt><dd>{{ "{:,.0f}".format(totals.seconds / 3600).replace(",", ".") }}</dd></div>
     <div><dt>Follower</dt><dd>{{ followers }}</dd></div>
   </dl>
 </section>
 
-<section class="panel overview">
+<section class="panel overview" aria-labelledby="h-week">
   <div class="panel-head">
-    <h2 class="eyebrow">Diese Woche</h2>
+    <h2 class="eyebrow" id="h-week">Diese Woche</h2>
+    {% if week.previous_seconds %}<span class="muted small">Letzte Woche: {{ week.previous_seconds | hours }}</span>{% endif %}
   </div>
   <dl class="kpis">
     <div class="kpi"><dt>Aktivitäten</dt><dd>{{ week.count }}</dd></div>
     <div class="kpi"><dt>Zeit</dt><dd>{{ week.seconds | hours }}</dd></div>
     {% set d = distance_parts(week.distance_m) %}
-    <div class="kpi"><dt>Distanz</dt><dd>{{ d[0] if week.distance_m else "0" }}<small>{{ d[1] or "km" }}</small></dd></div>
+    <div class="kpi"><dt>Distanz</dt><dd>{{ d[0] if week.distance_m else "0" }}<small>{{ d[1] if week.distance_m else "km" }}</small></dd></div>
     <div class="kpi"><dt>Höhenmeter</dt><dd>{{ week.elevation_m | meters }}<small>m</small></dd></div>
     <div class="kpi"><dt>Wiederholungen</dt><dd>{{ week.reps }}</dd></div>
   </dl>
@@ -48,7 +51,7 @@
       {% endfor %}
       <line class="baseline" x1="{{ chart.left }}" x2="{{ chart.width }}" y1="{{ chart.plot_h }}" y2="{{ chart.plot_h }}"/>
       {% for b in chart.bars %}
-        <g class="bar{% if b.current %} is-current{% endif %}{% if loop.index is odd %} is-odd{% endif %}">
+        <g class="bar{% if b.current %} is-current{% endif %}{% if loop.revindex0 % 3 == 0 %} is-key{% endif %}">
           <title>{{ b.tooltip }}</title>
           <rect class="hit" x="{{ b.x - 6 }}" y="0" width="{{ b.w + 12 }}" height="{{ chart.plot_h }}"/>
           {% for seg in b.segments %}
@@ -62,61 +65,67 @@
   </div>
 </section>
 
-<div class="feed-head">
+<section class="panel year" aria-labelledby="h-year">
+  <div class="panel-head">
+    <h2 class="eyebrow" id="h-year">Das letzte Jahr</h2>
+    <span class="muted small">{{ calendar.active_days }} aktive {{ "Tag" if calendar.active_days == 1 else "Tage" }}</span>
+  </div>
+  <div class="calendar-scroll">
+    <svg class="calendar" viewBox="-26 -16 {{ calendar.width + 26 }} {{ calendar.height + 16 }}"
+         role="img"
+         aria-label="Kalender der Aktivitäten im letzten Jahr">
+      {% for m in calendar.months %}<text class="axis" x="{{ m.x }}" y="-6">{{ m.label }}</text>{% endfor %}
+      <text class="axis" x="-26" y="10">Mo</text>
+      <text class="axis" x="-26" y="55">Do</text>
+      <text class="axis" x="-26" y="100">So</text>
+      {% for c in calendar.cells %}
+        <rect class="day{% if c.sport %} s-{{ c.sport }} l{{ c.level }}{% endif %}" x="{{ c.x }}" y="{{ c.y }}"
+              width="{{ calendar.cell }}" height="{{ calendar.cell }}" rx="3"><title>{{ c.title }}</title></rect>
+      {% endfor %}
+    </svg>
+  </div>
+</section>
+
+{% if records %}
+<section class="records" aria-labelledby="h-records">
+  <h2 class="section-title" id="h-records">Bestwerte</h2>
+  <div class="record-grid">
+    {% for group in records %}
+      <div class="record-card s-{{ group.sport }}">
+        <h3><span class="record-icon">{{ icon(group.sport, 18) }}</span>{{ sports[group.sport].name }}</h3>
+        <ul>
+          {% for r in group["items"] %}
+            <li><a href="/activities/{{ r.id }}" title="{{ r.title }}">
+              <span class="record-label">{{ r.label }}</span>
+              <span class="record-value">{{ r.value }}<small>{{ r.unit }}</small></span>
+            </a></li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<div class="feed-head" id="aktivitaeten">
   <h2 class="section-title">Aktivitäten</h2>
   <nav class="chips" aria-label="Nach Sportart filtern">
-    <a class="chip chip-all{% if not current_sport %} is-active{% endif %}" href="/">Alle</a>
+    <a class="chip chip-all{% if not current_sport %} is-active{% endif %}" href="/#aktivitaeten">Alle</a>
     {% for key, sp in sports.items() %}
-      <a class="chip s-{{ key }}{% if current_sport == key %} is-active{% endif %}" href="/?sport={{ key }}">{{ icon(key, 16) }}{{ sp.name }}</a>
+      <a class="chip s-{{ key }}{% if current_sport == key %} is-active{% endif %}" href="/?sport={{ key }}#aktivitaeten">{{ icon(key, 16) }}{{ sp.name }}</a>
     {% endfor %}
   </nav>
 </div>
 
 <div class="feed">
 {% for a in activities %}
-  {% set sp = sport(a.sport) %}
-  <a class="act-card s-{{ a.sport }}" href="/activities/{{ a.id }}">
-    <div class="act-main">
-      <div class="act-meta">
-        <span class="badge">{{ icon(a.sport, 15) }}{{ sp.name }}</span>
-        <time>{{ (a.started_at or a.created_at) | nice_date }}</time>
-      </div>
-      <h3 class="act-title">{{ a.title }}</h3>
-      {% if a.kind == "workout" %}
-        {% set w = workout_summary(a.workout) %}
-        <dl class="act-stats">
-          <div><dt>Dauer</dt><dd>{{ a.duration_s | duration }}</dd></div>
-          <div><dt>Sätze</dt><dd>{{ w.sets }}</dd></div>
-          <div><dt>Wdh.</dt><dd>{{ w.reps }}</dd></div>
-          {% if w.hold_s %}<div><dt>Halten</dt><dd>{{ w.hold_s }}<small>s</small></dd></div>{% endif %}
-        </dl>
-        <ul class="ex-chips">
-          {% for e in a.workout[:4] %}<li>{{ e.name }} <b>{{ e.sets | length }}×</b></li>{% endfor %}
-          {% if a.workout | length > 4 %}<li>+{{ a.workout | length - 4 }}</li>{% endif %}
-        </ul>
-      {% else %}
-        {% set d = distance_parts(a.distance_m) %}
-        {% set v = speed_parts(a.sport, a.distance_m, a.moving_s or a.duration_s) %}
-        <dl class="act-stats">
-          <div><dt>Distanz</dt><dd>{{ d[0] }}<small>{{ d[1] }}</small></dd></div>
-          <div><dt>Zeit</dt><dd>{{ (a.moving_s or a.duration_s) | duration }}</dd></div>
-          <div><dt>{{ "Tempo" if sp.metric == "pace" else "Ø" }}</dt><dd>{{ v[0] }}<small>{{ v[1] }}</small></dd></div>
-          {% if a.elevation_gain_m is not none %}<div><dt>Höhe</dt><dd>{{ a.elevation_gain_m | meters }}<small>m</small></dd></div>{% endif %}
-        </dl>
-      {% endif %}
-    </div>
-    {% if a.kind == "workout" %}
-      <div class="act-visual act-visual-icon">{{ icon("calisthenics", 46) }}</div>
-    {% elif a.track %}
-      <svg class="act-visual" viewBox="0 0 160 110" aria-hidden="true"><path d="{{ route_path(a.track) }}"/></svg>
-    {% endif %}
-  </a>
+  {{ activity_card(a) }}
 {% else %}
   <div class="empty">
     {{ logo(48) }}
     <h3>Noch keine Aktivitäten{% if current_sport %} in dieser Sportart{% endif %}</h3>
     {% if is_owner %}
-      <p>Lade eine GPX-Datei hoch oder trag ein Workout ein.</p>
+      <p>Lade eine GPX- oder FIT-Datei hoch oder trag ein Workout ein.</p>
       <a class="btn btn-primary" href="/upload">{{ icon("plus", 18) }} Erste Aktivität eintragen</a>
     {% else %}
       <p>Schau bald wieder vorbei.</p>
@@ -124,4 +133,13 @@
   </div>
 {% endfor %}
 </div>
+
+{% if page > 1 or has_more %}
+{% set q = ("sport=" ~ current_sport ~ "&") if current_sport else "" %}
+<nav class="pager" aria-label="Seiten">
+  {% if page > 1 %}<a class="btn btn-ghost btn-sm" href="/?{{ q }}page={{ page - 1 }}#aktivitaeten">{{ icon("chevron-left", 16) }} Neuere</a>{% else %}<span></span>{% endif %}
+  <span class="muted small">Seite {{ page }}</span>
+  {% if has_more %}<a class="btn btn-ghost btn-sm" href="/?{{ q }}page={{ page + 1 }}#aktivitaeten">Ältere {{ icon("chevron-right", 16) }}</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
 {% endblock %}

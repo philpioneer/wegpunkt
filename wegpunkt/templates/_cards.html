@@ -1,0 +1,44 @@
+{% from "_icons.html" import icon %}
+
+{# Eine Aktivität als Karte in der Liste #}
+{% macro activity_card(a) -%}
+{% set sp = sport(a.sport) %}
+<a class="act-card s-{{ a.sport }}" href="/activities/{{ a.id }}">
+  <div class="act-main">
+    <div class="act-meta">
+      <span class="badge">{{ icon(a.sport, 15) }}{{ sp.name }}</span>
+      {% if a.visibility != "public" %}<span class="badge badge-muted">{{ icon("lock", 13) }}Privat</span>{% endif %}
+      <time datetime="{{ a.started_at or a.created_at }}">{{ (a.started_at or a.created_at) | nice_date }}</time>
+    </div>
+    <h3 class="act-title">{{ a.title }}</h3>
+    {% if a.kind == "workout" %}
+      {% set w = workout_summary(a.workout) %}
+      <dl class="act-stats">
+        <div><dt>Dauer</dt><dd>{{ a.duration_s | duration }}</dd></div>
+        <div><dt>Sätze</dt><dd>{{ w.sets }}</dd></div>
+        <div><dt>Wdh.</dt><dd>{{ w.reps }}</dd></div>
+        {% if w.hold_s %}<div><dt>Halten</dt><dd>{{ w.hold_s }}<small>s</small></dd></div>{% endif %}
+      </dl>
+      <ul class="ex-chips">
+        {% for e in a.workout[:4] %}<li>{{ e.name }} <b>{{ e.sets | length }}×</b></li>{% endfor %}
+        {% if a.workout | length > 4 %}<li>+{{ a.workout | length - 4 }}</li>{% endif %}
+      </ul>
+    {% else %}
+      {% set d = distance_parts(a.distance_m) %}
+      {% set v = speed_parts(a.sport, a.distance_m, a.moving_s or a.duration_s) %}
+      <dl class="act-stats">
+        <div><dt>Distanz</dt><dd>{{ d[0] }}<small>{{ d[1] }}</small></dd></div>
+        <div><dt>Zeit</dt><dd>{{ (a.moving_s or a.duration_s) | duration }}</dd></div>
+        <div><dt>{{ "Tempo" if sp.metric == "pace" else "Ø" }}</dt><dd>{{ v[0] }}<small>{{ v[1] }}</small></dd></div>
+        {% if a.elevation_gain_m is not none %}<div><dt>Anstieg</dt><dd>{{ a.elevation_gain_m | meters }}<small>m</small></dd></div>{% endif %}
+        {% if a.extra.avg_hr %}<div><dt>Puls</dt><dd>{{ a.extra.avg_hr }}<small>bpm</small></dd></div>{% endif %}
+      </dl>
+    {% endif %}
+  </div>
+  {% if a.kind == "workout" %}
+    <div class="act-visual act-visual-icon">{{ icon("calisthenics", 46) }}</div>
+  {% elif a.track %}
+    <svg class="act-visual" viewBox="0 0 160 110" aria-hidden="true"><path d="{{ route_path(a.track) }}"/></svg>
+  {% endif %}
+</a>
+{%- endmacro %}

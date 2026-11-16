@@ -1,60 +1,29 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon, logo %}
+{% from "_forms.html" import exercise_editor, sport_picker, private_switch %}
 {% block title %}Eintragen{% endblock %}
-
-{% macro ex_row(r) -%}
-<div class="ex-row">
-  <input class="ex-name" name="exercise_name" list="ex-suggestions" placeholder="z. B. Klimmzüge"
-         value="{{ r.name or '' }}" aria-label="Übung" autocomplete="off">
-  <input class="ex-sets" name="exercise_sets" placeholder="8 8 7 6" value="{{ r.sets or '' }}"
-         aria-label="Sätze" autocomplete="off">
-  <select class="ex-unit" name="exercise_unit" aria-label="Einheit">
-    <option value="reps">Wdh.</option>
-    <option value="sec"{% if r.unit == "sec" %} selected{% endif %}>Sek.</option>
-  </select>
-  <input class="ex-weight" name="exercise_weight" placeholder="+ kg" value="{{ r.weight or '' }}"
-         inputmode="decimal" aria-label="Zusatzgewicht in kg" autocomplete="off">
-  <button type="button" class="icon-btn ex-remove" aria-label="Übung entfernen">{{ icon("x", 18) }}</button>
-  <output class="ex-preview"></output>
-</div>
-{%- endmacro %}
-
 {% block content %}
 <header class="page-head">
   <h1 class="display">Eintragen</h1>
-  <p class="lede">{{ "Lade eine GPX-Datei von Uhr, Radcomputer oder App hoch." if mode == "gps" else "Trag dein Calisthenics-Workout von Hand ein." }}</p>
+  <p class="lede">{{ "Lade eine GPX- oder FIT-Datei von Uhr, Radcomputer oder App hoch." if mode == "gps" else "Trag dein Calisthenics-Workout von Hand ein." }}</p>
 </header>
 
 <nav class="segmented" aria-label="Art der Aktivität">
-  <a href="/upload" class="{{ 'is-active' if mode == 'gps' }}">{{ icon("route", 18) }} GPS-Aktivität</a>
-  <a href="/upload?type=workout" class="{{ 'is-active' if mode == 'workout' }}">{{ icon("calisthenics", 18) }} Workout</a>
+  <a href="/upload" class="{{ 'is-active' if mode == 'gps' }}"{% if mode == 'gps' %} aria-current="page"{% endif %}>{{ icon("route", 18) }} GPS-Aktivität</a>
+  <a href="/upload?type=workout" class="{{ 'is-active' if mode == 'workout' }}"{% if mode == 'workout' %} aria-current="page"{% endif %}>{{ icon("calisthenics", 18) }} Workout</a>
 </nav>
 
 {% if error %}<div class="alert" role="alert">{{ icon("alert", 18) }}<span>{{ error }}</span></div>{% endif %}
 
 {% if mode == "gps" %}
 <form class="panel form" method="post" action="/upload" enctype="multipart/form-data">
-  <fieldset class="field">
-    <legend class="label">Sportart</legend>
-    <div class="sport-picker">
-      {% for key in gps_sports %}{% set sp = sports[key] %}
-        <label class="sport-opt s-{{ key }}">
-          <input type="radio" name="sport" value="{{ key }}"{% if values.sport == key %} checked{% endif %}>
-          <span class="sport-opt-body">{{ icon(key, 30) }}<b>{{ sp.name }}</b></span>
-        </label>
-      {% endfor %}
-      <label class="sport-opt">
-        <input type="radio" name="sport" value="auto"{% if values.sport not in gps_sports %} checked{% endif %}>
-        <span class="sport-opt-body">{{ icon("sparkle", 30) }}<b>Automatisch</b><small>aus der Datei</small></span>
-      </label>
-    </div>
-  </fieldset>
+  {{ sport_picker(values.sport) }}
 
   <label class="dropzone" id="drop">
-    <input type="file" name="file" accept=".gpx,application/gpx+xml" required>
+    <input type="file" name="file" accept=".gpx,.fit,.gz,application/gpx+xml" required>
     <span class="dz-icon">{{ icon("upload", 26) }}</span>
-    <span class="dz-text"><b>GPX-Datei wählen</b> oder hierher ziehen</span>
-    <span class="dz-file" id="dz-file">Max. 30 MB</span>
+    <span class="dz-text"><b>Datei wählen</b> oder hierher ziehen</span>
+    <span class="dz-file" id="dz-file" data-hint="GPX oder FIT, auch gepackt (.gz) · max. 30 MB">GPX oder FIT, auch gepackt (.gz) · max. 30 MB</span>
   </label>
 
   <div class="field">
@@ -65,13 +34,25 @@
     <label class="label" for="description">Beschreibung <span class="optional">optional</span></label>
     <textarea id="description" name="description" rows="3" maxlength="5000" placeholder="Wie lief's?">{{ values.description or '' }}</textarea>
   </div>
+  {{ private_switch(values.private) }}
 
   <div class="form-foot">
-    <p class="note">{{ icon("globe", 14) }} Öffentlich, geht an alle Follower.</p>
-    <button class="btn btn-primary">{{ icon("upload", 18) }} Veröffentlichen</button>
+    <p class="note">{{ icon("shield", 14) }} Start und Ziel werden auf {{ "%.0f" | format(settings.privacy_radius_m) }} m ausgeblendet.</p>
+    <button class="btn btn-primary">{{ icon("upload", 18) }} Speichern</button>
   </div>
 </form>
 {% else %}
+{% if workout_templates %}
+<div class="templates">
+  <span class="eyebrow">Als Vorlage nehmen</span>
+  <div class="chips">
+    {% for t in workout_templates %}
+      <a class="chip s-calisthenics" href="/upload?type=workout&source={{ t.id }}">{{ icon("copy-plus", 16) }}{{ t.title }}
+        <small>{{ (t.started_at or t.created_at) | local_time | truncate(10, true, "") }}</small></a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 <form class="panel form" method="post" action="/workout" id="workout-form">
   <div class="grid-3">
     <div class="field">
@@ -84,85 +65,22 @@
     </div>
     <div class="field">
       <label class="label" for="duration">Dauer <span class="optional">Minuten</span></label>
-      <input id="duration" name="duration_min" inputmode="numeric" value="{{ values.duration_min or '' }}" placeholder="45">
+      <input id="duration" name="duration_min" inputmode="decimal" value="{{ values.duration_min or '' }}" placeholder="45">
     </div>
   </div>
 
-  <fieldset class="field">
-    <legend class="label">Übungen</legend>
-    <div class="ex-cols" aria-hidden="true"><span>Übung</span><span>Sätze</span><span>Einheit</span><span>Zusatz</span></div>
-    <div id="ex-rows">{% for r in rows %}{{ ex_row(r) }}{% endfor %}</div>
-    <template id="ex-template">{{ ex_row({}) }}</template>
-    <button type="button" class="btn btn-ghost btn-sm add-ex" id="add-ex">{{ icon("plus", 16) }} Übung hinzufügen</button>
-    <p class="note">Sätze als „8 8 7 6“ oder „4x8“. Für Halteübungen wie L-Sit oder Handstand „Sek.“ wählen.</p>
-  </fieldset>
-  <datalist id="ex-suggestions">{% for s in suggestions %}<option value="{{ s }}">{% endfor %}</datalist>
+  {{ exercise_editor(rows) }}
 
   <div class="field">
     <label class="label" for="description">Notizen <span class="optional">optional</span></label>
     <textarea id="description" name="description" rows="3" maxlength="5000" placeholder="Fortschritte, Gefühl, nächstes Ziel …">{{ values.description or '' }}</textarea>
   </div>
+  {{ private_switch(values.private) }}
 
   <div class="form-foot">
-    <p class="note" id="workout-total">{{ icon("globe", 14) }} Öffentlich, geht an alle Follower.</p>
+    <span></span>
     <button class="btn btn-primary s-calisthenics">{{ icon("check", 18) }} Workout speichern</button>
   </div>
 </form>
 {% endif %}
-{% endblock %}
-
-{% block scripts %}
-<script>
-(() => {
-  // Datei-Feld
-  const drop = document.getElementById("drop");
-  if (drop) {
-    const input = drop.querySelector("input"), label = document.getElementById("dz-file");
-    const show = () => {
-      const f = input.files[0];
-      drop.classList.toggle("has-file", !!f);
-      label.textContent = f ? `${f.name} · ${(f.size / 1024).toLocaleString("de-DE", { maximumFractionDigits: 0 })} KB` : "Max. 30 MB";
-    };
-    input.addEventListener("change", show);
-    ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("is-over"); }));
-    ["dragleave", "drop"].forEach(t => drop.addEventListener(t, () => drop.classList.remove("is-over")));
-    drop.addEventListener("drop", e => { e.preventDefault(); if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; show(); } });
-  }
-
-  // Workout-Übungen
-  const rows = document.getElementById("ex-rows");
-  if (!rows) return;
-  const tpl = document.getElementById("ex-template");
-  const parse = (text) => {
-    text = text.trim().toLowerCase();
-    if (!text) return [];
-    const m = text.match(/^(\d+)\s*[x×*]\s*(\d+)$/);
-    if (m) return Array(Math.min(+m[1], 50)).fill(+m[2]);
-    const parts = text.split(/[\s,;/·+]+/).filter(Boolean);
-    return parts.every(p => /^\d+$/.test(p)) ? parts.map(Number) : null;
-  };
-  const update = (row) => {
-    const sets = parse(row.querySelector(".ex-sets").value);
-    const unit = row.querySelector(".ex-unit").value === "sec" ? "Sek." : "Wdh.";
-    const out = row.querySelector(".ex-preview");
-    row.classList.toggle("is-invalid", sets === null);
-    out.textContent = sets === null ? "Format: 8 8 7 6 oder 4x8"
-      : sets.length ? `${sets.length} ${sets.length === 1 ? "Satz" : "Sätze"} · ${sets.reduce((a, b) => a + b, 0)} ${unit}` : "";
-  };
-  rows.addEventListener("input", e => { const r = e.target.closest(".ex-row"); if (r) update(r); });
-  rows.addEventListener("change", e => { const r = e.target.closest(".ex-row"); if (r) update(r); });
-  rows.addEventListener("click", e => {
-    const btn = e.target.closest(".ex-remove");
-    if (!btn) return;
-    const row = btn.closest(".ex-row");
-    if (rows.children.length > 1) row.remove();
-    else row.querySelectorAll("input").forEach(i => (i.value = "")), update(row);
-  });
-  document.getElementById("add-ex").addEventListener("click", () => {
-    rows.appendChild(tpl.content.cloneNode(true));
-    rows.lastElementChild.querySelector(".ex-name").focus();
-  });
-  rows.querySelectorAll(".ex-row").forEach(update);
-})();
-</script>
 {% endblock %}

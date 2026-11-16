@@ -6,7 +6,7 @@
   <div class="panel auth-card">
     {{ logo(44) }}
     <h1 class="display">Anmelden</h1>
-    <p class="muted">Diese Instanz gehört {{ settings.display_name }}. Eine Registrierung gibt es nicht.</p>
+    <p class="muted">Diese Instanz gehört {{ profile.display_name }}. Eine Registrierung gibt es nicht.</p>
     {% if error %}<div class="alert" role="alert">{{ icon("alert", 18) }}<span>{{ error }}</span></div>{% endif %}
     <form class="form" method="post" action="/login">
       <div class="field">
