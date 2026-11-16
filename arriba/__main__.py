@@ -6,6 +6,7 @@ from .config import merged_env
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # nicht jede geladene Kartenkachel melden
     env = merged_env()
     uvicorn.run(
         "arriba.app:create_app",
