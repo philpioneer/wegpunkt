@@ -18,11 +18,10 @@
   const map = L.map("map", { scrollWheelZoom: false, zoomSnap: 0.25 });
   map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
   const osm = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende';
-  const base = () => L.tileLayer(
-    `https://{s}.basemaps.cartocdn.com/${isDark() ? "dark_all" : "rastertiles/voyager"}/{z}/{x}/{y}{r}.png`,
-    { subdomains: "abcd", maxZoom: 20, attribution: `${osm} &copy; <a href="https://carto.com/attributions">CARTO</a>` });
   const layers = {
-    map: base(),
+    // Im dunklen Farbschema färbt das Stylesheet diese Kacheln um (Klasse base-tiles).
+    map: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      { maxZoom: 19, className: "base-tiles", attribution: osm }),
     topo: L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
       { subdomains: "abc", maxZoom: 17, attribution: `${osm}, SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)` }),
   };
@@ -192,11 +191,4 @@
     document.addEventListener("themechange", paint);
   }
 
-  // Beim Wechsel des Farbschemas die passende Grundkarte nehmen
-  document.addEventListener("themechange", () => {
-    const wasActive = active === "map";
-    if (wasActive) map.removeLayer(layers.map);
-    layers.map = base();
-    if (wasActive) layers.map.addTo(map).bringToBack();
-  });
 })();

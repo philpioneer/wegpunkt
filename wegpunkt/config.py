@@ -21,6 +21,8 @@ class Settings:
     timezone: str = "Europe/Berlin"
     # Punkte in diesem Radius um Start und Ziel werden nicht öffentlich gezeigt.
     privacy_radius_m: float = 200.0
+    # Vorschaubilder für Fediverse-Beiträge mit Kartenhintergrund von OpenStreetMap
+    map_previews: bool = True
 
     @property
     def base_url(self) -> str:
@@ -92,4 +94,5 @@ def load_settings(env_file: Path | None = None) -> Settings:
         summary=env.get("WEGPUNKT_SUMMARY", ""),
         timezone=env.get("WEGPUNKT_TIMEZONE", "Europe/Berlin"),
         privacy_radius_m=float(env.get("WEGPUNKT_PRIVACY_RADIUS_M", "200")),
+        map_previews=env.get("WEGPUNKT_MAP_PREVIEWS", "1").lower() not in ("0", "false", "no"),
     )

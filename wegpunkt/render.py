@@ -41,7 +41,7 @@ def route_path(points: list, w: float = 160, h: float = 110, pad: float = 12) ->
     return "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in coords)
 
 
-def route_png(points: list, path: Path, color: Color, size: tuple[int, int] = (1200, 750)) -> bool:
+def route_png(points: list, path: Path, color: Color, size: tuple[int, int] = (1200, 675)) -> bool:
     """Zeichnet die Route als Bild, damit sie in Mastodon & Co. als Vorschau erscheint."""
     from PIL import Image, ImageDraw, ImageFilter
 
@@ -76,6 +76,121 @@ def route_png(points: list, path: Path, color: Color, size: tuple[int, int] = (1
     for (px, py), fill in ((pixels[0], (255, 255, 255)), (pixels[-1], color)):
         draw.ellipse((px - r, py - r, px + r, py + r), fill=fill, outline=bg, width=4 * scale)
     img.resize(size, Image.LANCZOS).save(path, "PNG", optimize=True)
+    return True
+
+
+TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+TILE_SIZE = 256
+MAX_TILES = 96
+
+
+class TileSource:
+    """Lädt Kartenkacheln von OpenStreetMap und merkt sie sich auf der Festplatte."""
+
+    def __init__(self, cache_dir: Path, user_agent: str, timeout: float = 6.0):
+        self.cache_dir = cache_dir
+        self.user_agent = user_agent
+        self.timeout = timeout
+        self._client = None
+
+    def get(self, z: int, x: int, y: int) -> bytes:
+        path = self.cache_dir / str(z) / str(x) / f"{y}.png"
+        if path.exists():
+            return path.read_bytes()
+        import httpx
+
+        if self._client is None:
+            self._client = httpx.Client(timeout=self.timeout, headers={"User-Agent": self.user_agent})
+        resp = self._client.get(TILE_URL.format(z=z, x=x, y=y))
+        resp.raise_for_status()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(resp.content)
+        return resp.content
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+
+def _world_px(lat: float, lon: float, zoom: int) -> tuple[float, float]:
+    """Web-Mercator: Position in Pixeln auf der Weltkarte der Zoomstufe."""
+    n = TILE_SIZE * 2 ** zoom
+    lat = math.radians(max(min(lat, 85.0), -85.0))
+    return (lon + 180.0) / 360.0 * n, (1 - math.asinh(math.tan(lat)) / math.pi) / 2 * n
+
+
+def route_map_png(
+    points: list, path: Path, color: Color, tiles: TileSource,
+    size: tuple[int, int] = (1200, 675), pad: int = 80,
+) -> bool:
+    """Route auf echtem Kartenhintergrund. Wirft eine Ausnahme, wenn Kacheln fehlen."""
+    from PIL import Image, ImageDraw, ImageEnhance, ImageFont
+
+    if len(points) < 2:
+        return False
+    pts = _thin(points, 1500)
+    w, h = size
+    zoom = 16
+    while zoom > 2:
+        xy = [_world_px(p[0], p[1], zoom) for p in pts]
+        span_x = max(x for x, _ in xy) - min(x for x, _ in xy)
+        span_y = max(y for _, y in xy) - min(y for _, y in xy)
+        if span_x <= w - 2 * pad and span_y <= h - 2 * pad:
+            break
+        zoom -= 1
+    # Eine Stufe näher zeichnen und passend verkleinern: so füllt die Route das Bild.
+    fill = min((w - 2 * pad) / max(span_x, 1), (h - 2 * pad) / max(span_y, 1))
+    zoom += 1
+    k = min(max(2 / fill, 1.0), 2.0)
+    cw, ch = round(w * k), round(h * k)
+    xy = [_world_px(p[0], p[1], zoom) for p in pts]
+    left = (min(x for x, _ in xy) + max(x for x, _ in xy)) / 2 - cw / 2
+    top = (min(y for _, y in xy) + max(y for _, y in xy)) / 2 - ch / 2
+
+    count = 2 ** zoom
+    x0, x1 = math.floor(left / TILE_SIZE), math.floor((left + cw - 1) / TILE_SIZE)
+    y0, y1 = max(0, math.floor(top / TILE_SIZE)), min(count - 1, math.floor((top + ch - 1) / TILE_SIZE))
+    if (x1 - x0 + 1) * (y1 - y0 + 1) > MAX_TILES:
+        raise ValueError("zu viele Kacheln")
+    img = Image.new("RGB", (cw, ch), (236, 233, 226))
+    for tx in range(x0, x1 + 1):
+        for ty in range(y0, y1 + 1):
+            tile = Image.open(io.BytesIO(tiles.get(zoom, tx % count, ty))).convert("RGB")
+            img.paste(tile, (round(tx * TILE_SIZE - left), round(ty * TILE_SIZE - top)))
+    img = img.resize(size, Image.LANCZOS)
+
+    # Karte etwas zurücknehmen, damit die Route heraussticht
+    img = ImageEnhance.Color(img).enhance(0.6)
+    img = Image.blend(img, Image.new("RGB", size, (255, 255, 255)), 0.15)
+
+    scale = 2
+    layer = Image.new("RGBA", (w * scale, h * scale), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    pixels = [((x - left) / k * scale, (y - top) / k * scale) for x, y in xy]
+
+    def stroke(width: int, fill) -> None:
+        draw.line(pixels, fill=fill, width=width)
+        half = width / 2
+        for px, py in pixels:
+            draw.ellipse((px - half, py - half, px + half, py + half), fill=fill)
+
+    stroke(15 * scale, (255, 255, 255, 235))
+    stroke(8 * scale, (*color, 255))
+    r = 12 * scale
+    for (px, py), fill in ((pixels[0], (27, 30, 35, 255)), (pixels[-1], (*color, 255))):
+        draw.ellipse((px - r, py - r, px + r, py + r), fill=fill, outline=(255, 255, 255, 255), width=4 * scale)
+    overlay = layer.resize(size, Image.LANCZOS)
+    img.paste(overlay, (0, 0), overlay)
+
+    # Pflichtangabe für OpenStreetMap-Karten
+    draw = ImageDraw.Draw(img, "RGBA")
+    font = ImageFont.load_default(size=18)
+    text = "© OpenStreetMap"
+    tw = draw.textlength(text, font=font)
+    draw.rounded_rectangle((w - tw - 26, h - 38, w - 10, h - 10), radius=8, fill=(255, 255, 255, 215))
+    draw.text((w - tw - 18, h - 34), text, fill=(60, 64, 72, 255), font=font)
+    img.save(path, "PNG", optimize=True)
     return True
 
 

@@ -821,3 +821,10 @@ input[type="file"]::file-selector-button {
   .header-nav .btn-primary { width: 40px; padding: 0; }
   .header-nav .btn-primary span { display: none; }
 }
+
+/* Dunkle Karte: die hellen OpenStreetMap-Kacheln umfärben */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .base-tiles { filter: invert(1) hue-rotate(180deg) saturate(.55) brightness(.92) contrast(.88); }
+}
+:root[data-theme="dark"] .base-tiles { filter: invert(1) hue-rotate(180deg) saturate(.55) brightness(.92) contrast(.88); }
+.leaflet-control-attribution, .leaflet-control-attribution a { color: var(--ink-2) !important; }

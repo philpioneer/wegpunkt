@@ -18,7 +18,7 @@ ME = "http://testserver/users/philipp"
 def make_settings(tmp_path, **overrides) -> Settings:
     values = dict(
         domain="testserver", username="philipp", display_name="Philipp", password="geheim",
-        secret_key="x" * 32, data_dir=tmp_path, https=False,
+        secret_key="x" * 32, data_dir=tmp_path, https=False, map_previews=False,
     )
     return Settings(**{**values, **overrides})
 

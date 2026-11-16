@@ -73,3 +73,48 @@ def test_gpx_without_time_or_elevation():
 ])
 def test_guess_sport(hint, expected):
     assert guess_sport(hint) == expected
+
+
+def test_route_image_with_map_background(tmp_path):
+    import io
+
+    from PIL import Image
+
+    from wegpunkt import render
+
+    class FakeTiles:
+        calls = 0
+
+        def get(self, z, x, y):
+            FakeTiles.calls += 1
+            buf = io.BytesIO()
+            Image.new("RGB", (256, 256), (200, 220, 200)).save(buf, "PNG")
+            return buf.getvalue()
+
+    points = tracks.visible_points(tracks.parse(GPX), 200)
+    out = tmp_path / "karte.png"
+    assert render.route_map_png(points, out, (37, 99, 235), FakeTiles())
+    img = Image.open(out)
+    assert img.size == (1200, 675) and 6 <= FakeTiles.calls <= render.MAX_TILES
+    colors = {c for _, c in img.convert("RGB").getcolors(maxcolors=1_000_000)}
+    assert (37, 99, 235) in colors                       # die Route in Sportfarbe
+    assert not render.route_map_png(points[:1], out, (0, 0, 0), FakeTiles())
+
+
+def test_route_image_falls_back_without_map_server(tmp_path):
+    from wegpunkt.app import create_app
+    from .conftest import make_settings
+
+    ctx = create_app(make_settings(tmp_path, map_previews=True)).state.ctx
+
+    class Broken:
+        def get(self, z, x, y):
+            raise OSError("kein Netz")
+
+        def close(self):
+            pass
+
+    ctx.tiles = Broken()
+    a = {"id": "abcd", "sport": "run", "track": tracks.visible_points(tracks.parse(GPX), 200)}
+    ctx.draw_route(a)
+    assert a["has_image"] and (ctx.media_dir / "abcd.png").stat().st_size > 1000

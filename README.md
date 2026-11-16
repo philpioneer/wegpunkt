@@ -18,7 +18,7 @@ Fediverse spricht. Eine Instanz gehört genau einer Person.
 
 **Fediverse**
 - Man kann dir von Mastodon, GoToSocial usw. folgen (`@du@deine-domain`). Jede öffentliche Aktivität
-  erscheint dort als Beitrag mit Routenbild, Werten und Hashtag.
+  erscheint dort als Beitrag mit Karte der Route, Werten und Hashtag.
 - Likes, Boosts und Antworten erscheinen unter der Aktivität
 - **Bearbeiten und Löschen** kommen bei den Followern an, ebenso Änderungen an Name, Text und Profilbild
 - Zustellungen laufen über eine **Warteschlange**: Ist ein Server nicht erreichbar, wird es über gut
@@ -33,7 +33,8 @@ Fediverse spricht. Eine Instanz gehört genau einer Person.
 - Eingehende Nachrichten müssen signiert sein. Fremde Server können die Instanz nicht auf interne
   Adressen schicken. Fremdes HTML wird nur als Text angezeigt. Die Seiten setzen eine strenge
   Content-Security-Policy.
-- Schriften, Icons und Kartensoftware liegen im Projekt. Von fremden Servern kommen nur die Kartenkacheln.
+- Schriften, Icons und Kartensoftware liegen im Projekt. Von fremden Servern kommen nur die Kartenkacheln
+  (OpenStreetMap und OpenTopoMap).
 
 ## Lokal ausprobieren
 
@@ -113,7 +114,6 @@ Aufzeichnungen neu ausgewertet.
 
 - Anderen Accounts im Fediverse folgen und deren Aktivitäten in einem Feed sehen
 - Auf Antworten direkt von hier aus antworten
-- Routenbild mit Kartenhintergrund statt einfarbig
 - Strukturierte Felder (Distanz, Dauer, Sportart) im ActivityPub-Objekt, damit andere
   Fitness-Instanzen Aktivitäten maschinenlesbar übernehmen können
 - Segmente und Vergleich wiederholter Strecken

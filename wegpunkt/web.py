@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from . import fmt, render, stats, tracks, workouts
@@ -155,7 +156,7 @@ def register(app: FastAPI, ctx: "Context") -> None:
             "visibility": "private" if private else "public",
             "created_at": ctx.now(),
         }
-        ctx.apply_track(a, track)
+        await run_in_threadpool(ctx.apply_track, a, track)  # lädt ggf. Kartenkacheln
         suffix = (".fit" if track.source == "fit" else ".gpx") + (".gz" if data[:2] == b"\x1f\x8b" else "")
         (ctx.original_dir / f"{a['id']}{suffix}").write_bytes(data)
         return publish(a, background)

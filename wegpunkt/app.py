@@ -73,6 +73,10 @@ class Context:
         if not self.avatar_path.exists():
             render.default_avatar(self.avatar_path)
 
+        self.tiles = render.TileSource(
+            s.data_dir / "cache" / "tiles", f"Wegpunkt/{__version__} (+{s.base_url})"
+        ) if s.map_previews else None
+
         self.db = Database(s.data_dir / "wegpunkt.db")
         self.fed = Federation(s, self.db, load_or_create_key(s.data_dir / "private_key.pem"), self.profile)
         self.tz = ZoneInfo(s.timezone)
@@ -181,9 +185,18 @@ class Context:
         self.draw_route(a)
 
     def draw_route(self, a: dict[str, Any]) -> None:
-        a["has_image"] = render.route_png(
-            a["track"], self.media_dir / f"{a['id']}.png", sports.sport(a["sport"]).color
-        )
+        """Vorschaubild mit Karte; ohne Netz oder bei Fehlern nur die Linie."""
+        path = self.media_dir / f"{a['id']}.png"
+        color = sports.sport(a["sport"]).color
+        if self.tiles is not None:
+            try:
+                a["has_image"] = render.route_map_png(a["track"], path, color, self.tiles)
+                return
+            except Exception as exc:  # Kartenserver nicht erreichbar o. Ä.
+                log.warning("Kartenbild für %s nicht möglich (%s), zeichne ohne Karte", a["id"], exc)
+            finally:
+                self.tiles.close()
+        a["has_image"] = render.route_png(a["track"], path, color)
 
     def reprocess_outdated(self) -> int:
         """Wertet ältere Aufzeichnungen mit der aktuellen Auswertung neu aus."""
@@ -244,7 +257,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "default-src 'self'; "
                 f"script-src 'self' 'nonce-{request.state.nonce}'; "
                 "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: https://*.basemaps.cartocdn.com https://*.tile.opentopomap.org; "
+                "img-src 'self' data: https://tile.openstreetmap.org https://*.tile.opentopomap.org; "
                 "connect-src 'self'; object-src 'none'; base-uri 'self'; "
                 "form-action 'self'; frame-ancestors 'none'"
             )
